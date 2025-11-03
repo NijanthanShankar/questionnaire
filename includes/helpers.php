@@ -1,0 +1,410 @@
+<?php
+/**
+ * CleanIndex Portal - Helper Functions
+ * Utility functions used throughout the plugin
+ */
+
+if (!defined('ABSPATH')) exit;
+
+/**
+ * Check if current page is a plugin page
+ */
+function cip_is_plugin_page() {
+    $page = get_query_var('cip_page');
+    return !empty($page);
+}
+
+/**
+ * Get current user's organization
+ */
+function cip_get_current_organization() {
+    if (!is_user_logged_in()) {
+        return null;
+    }
+    
+    $user = wp_get_current_user();
+    global $wpdb;
+    $table = $wpdb->prefix . 'company_registrations';
+    
+    return $wpdb->get_row($wpdb->prepare(
+        "SELECT * FROM $table WHERE email = %s",
+        $user->user_email
+    ), ARRAY_A);
+}
+
+/**
+ * Format date for display
+ */
+function cip_format_date($date, $format = 'F j, Y') {
+    return date($format, strtotime($date));
+}
+
+/**
+ * Get status badge HTML
+ */
+function cip_get_status_badge($status) {
+    $badges = [
+        'pending_manager_review' => '<span class="badge badge-pending">Pending Review</span>',
+        'pending_admin_approval' => '<span class="badge badge-review">Admin Approval</span>',
+        'approved' => '<span class="badge badge-approved">Approved</span>',
+        'rejected' => '<span class="badge badge-rejected">Rejected</span>'
+    ];
+    
+    return isset($badges[$status]) ? $badges[$status] : '';
+}
+
+/**
+ * Sanitize assessment data
+ */
+function cip_sanitize_assessment_data($data) {
+    if (!is_array($data)) {
+        $data = json_decode($data, true);
+    }
+    
+    $sanitized = [];
+    foreach ($data as $key => $value) {
+        if (is_array($value)) {
+            $sanitized[$key] = cip_sanitize_assessment_data($value);
+        } else {
+            $sanitized[sanitize_key($key)] = sanitize_textarea_field($value);
+        }
+    }
+    
+    return $sanitized;
+}
+
+/**
+ * Get industries list
+ */
+function cip_get_industries() {
+    return [
+        'Agriculture' => 'Agriculture',
+        'Construction' => 'Construction',
+        'Education' => 'Education',
+        'Energy' => 'Energy',
+        'Finance' => 'Finance',
+        'Healthcare' => 'Healthcare',
+        'Manufacturing' => 'Manufacturing',
+        'Retail' => 'Retail',
+        'Technology' => 'Technology',
+        'Transportation' => 'Transportation',
+        'Other' => 'Other'
+    ];
+}
+
+/**
+ * Get countries list
+ */
+function cip_get_countries() {
+    return [
+        'Netherlands' => 'Netherlands',
+        'Belgium' => 'Belgium',
+        'Germany' => 'Germany',
+        'France' => 'France',
+        'United Kingdom' => 'United Kingdom',
+        'Spain' => 'Spain',
+        'Italy' => 'Italy',
+        'Other EU' => 'Other EU Country',
+        'Other' => 'Other'
+    ];
+}
+
+/**
+ * Get organization types
+ */
+function cip_get_organization_types() {
+    return [
+        'Company' => 'Company',
+        'Municipality' => 'Municipality',
+        'NGO' => 'NGO',
+        'Other' => 'Other'
+    ];
+}
+
+/**
+ * Check if file is allowed
+ */
+function cip_is_allowed_file_type($filename) {
+    $allowed_extensions = ['pdf', 'doc', 'docx'];
+    $extension = strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+    return in_array($extension, $allowed_extensions);
+}
+
+/**
+ * Generate verification code
+ */
+function cip_generate_verification_code() {
+    return strtoupper(substr(md5(uniqid(rand(), true)), 0, 10));
+}
+
+/**
+ * Get assessment step titles
+ */
+function cip_get_assessment_steps() {
+    return [
+        1 => 'General Requirements & Materiality Analysis',
+        2 => 'Company Profile & Governance',
+        3 => 'Strategy & Risk Management',
+        4 => 'Environment (E1-E5)',
+        5 => 'Social & Metrics (S1-S4)'
+    ];
+}
+
+/**
+ * Calculate assessment completion percentage
+ */
+function cip_calculate_assessment_progress($assessment_data) {
+    if (empty($assessment_data)) {
+        return 0;
+    }
+    
+    $total_fields = 0;
+    $completed_fields = 0;
+    
+    foreach ($assessment_data as $key => $value) {
+        if (strpos($key, 'q') === 0) { // Question fields start with 'q'
+            $total_fields++;
+            if (!empty($value)) {
+                $completed_fields++;
+            }
+        }
+    }
+    
+    return $total_fields > 0 ? round(($completed_fields / $total_fields) * 100) : 0;
+}
+
+/**
+ * Log activity
+ */
+function cip_log_activity($user_id, $action, $details = '') {
+    global $wpdb;
+    
+    $log_table = $wpdb->prefix . 'cip_activity_log';
+    
+    // Create log table if it doesn't exist
+    $wpdb->query("
+        CREATE TABLE IF NOT EXISTS $log_table (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT NOT NULL,
+            action VARCHAR(255) NOT NULL,
+            details TEXT,
+            ip_address VARCHAR(45),
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+    
+    $wpdb->insert(
+        $log_table,
+        [
+            'user_id' => $user_id,
+            'action' => $action,
+            'details' => $details,
+            'ip_address' => $_SERVER['REMOTE_ADDR']
+        ]
+    );
+}
+
+/**
+ * Send notification to admin
+ */
+function cip_notify_admin($subject, $message) {
+    $admin_email = get_option('admin_email');
+    return cip_send_email($admin_email, $subject, $message);
+}
+
+/**
+ * Get submission statistics
+ */
+function cip_get_statistics() {
+    global $wpdb;
+    $table = $wpdb->prefix . 'company_registrations';
+    
+    return [
+        'total' => $wpdb->get_var("SELECT COUNT(*) FROM $table"),
+        'pending' => $wpdb->get_var("SELECT COUNT(*) FROM $table WHERE status IN ('pending_manager_review', 'pending_admin_approval')"),
+        'approved' => $wpdb->get_var("SELECT COUNT(*) FROM $table WHERE status = 'approved'"),
+        'rejected' => $wpdb->get_var("SELECT COUNT(*) FROM $table WHERE status = 'rejected'"),
+        'this_month' => $wpdb->get_var("SELECT COUNT(*) FROM $table WHERE MONTH(created_at) = MONTH(CURRENT_DATE()) AND YEAR(created_at) = YEAR(CURRENT_DATE())")
+    ];
+}
+
+/**
+ * Get recent submissions
+ */
+function cip_get_recent_submissions($limit = 10) {
+    global $wpdb;
+    $table = $wpdb->prefix . 'company_registrations';
+    
+    return $wpdb->get_results(
+        $wpdb->prepare("SELECT * FROM $table ORDER BY created_at DESC LIMIT %d", $limit),
+        ARRAY_A
+    );
+}
+
+/**
+ * Get pending submissions count
+ */
+function cip_get_pending_count() {
+    global $wpdb;
+    $table = $wpdb->prefix . 'company_registrations';
+    
+    return $wpdb->get_var(
+        "SELECT COUNT(*) FROM $table WHERE status IN ('pending_manager_review', 'pending_admin_approval')"
+    );
+}
+
+/**
+ * Validate email format
+ */
+function cip_validate_email($email) {
+    return filter_var($email, FILTER_VALIDATE_EMAIL) !== false;
+}
+
+/**
+ * Validate phone number
+ */
+function cip_validate_phone($phone) {
+    return preg_match('/^[0-9\s\-\+\(\)]+$/', $phone);
+}
+
+/**
+ * Truncate text
+ */
+function cip_truncate_text($text, $length = 100, $suffix = '...') {
+    if (strlen($text) <= $length) {
+        return $text;
+    }
+    return substr($text, 0, $length) . $suffix;
+}
+
+/**
+ * Get time ago string
+ */
+function cip_time_ago($datetime) {
+    $timestamp = strtotime($datetime);
+    $diff = time() - $timestamp;
+    
+    if ($diff < 60) {
+        return 'Just now';
+    } elseif ($diff < 3600) {
+        $mins = floor($diff / 60);
+        return $mins . ' minute' . ($mins > 1 ? 's' : '') . ' ago';
+    } elseif ($diff < 86400) {
+        $hours = floor($diff / 3600);
+        return $hours . ' hour' . ($hours > 1 ? 's' : '') . ' ago';
+    } elseif ($diff < 604800) {
+        $days = floor($diff / 86400);
+        return $days . ' day' . ($days > 1 ? 's' : '') . ' ago';
+    } else {
+        return date('M j, Y', $timestamp);
+    }
+}
+
+/**
+ * Check if assessment is complete
+ */
+function cip_is_assessment_complete($user_id) {
+    global $wpdb;
+    $table = $wpdb->prefix . 'company_assessments';
+    
+    $assessment = $wpdb->get_row($wpdb->prepare(
+        "SELECT * FROM $table WHERE user_id = %d",
+        $user_id
+    ), ARRAY_A);
+    
+    return $assessment && $assessment['progress'] >= 5;
+}
+
+/**
+ * Get assessment data
+ */
+function cip_get_assessment($user_id) {
+    global $wpdb;
+    $table = $wpdb->prefix . 'company_assessments';
+    
+    $assessment = $wpdb->get_row($wpdb->prepare(
+        "SELECT * FROM $table WHERE user_id = %d",
+        $user_id
+    ), ARRAY_A);
+    
+    if ($assessment && $assessment['assessment_json']) {
+        $assessment['data'] = json_decode($assessment['assessment_json'], true);
+    }
+    
+    return $assessment;
+}
+
+/**
+ * Format currency
+ */
+function cip_format_currency($amount, $currency = 'EUR') {
+    $symbols = [
+        'EUR' => '€',
+        'USD' => '$',
+        'GBP' => '£'
+    ];
+    
+    $symbol = isset($symbols[$currency]) ? $symbols[$currency] : $currency;
+    return $symbol . number_format($amount, 2);
+}
+
+/**
+ * Generate random password
+ */
+function cip_generate_password($length = 12) {
+    $chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
+    $password = '';
+    for ($i = 0; $i < $length; $i++) {
+        $password .= $chars[rand(0, strlen($chars) - 1)];
+    }
+    return $password;
+}
+
+/**
+ * Clean input data
+ */
+function cip_clean_input($data) {
+    if (is_array($data)) {
+        return array_map('cip_clean_input', $data);
+    }
+    return trim(strip_tags($data));
+}
+
+/**
+ * Check if user has completed profile
+ */
+function cip_user_profile_complete($user_id) {
+    $org = cip_get_current_organization();
+    if (!$org) {
+        return false;
+    }
+    
+    $required_fields = ['company_name', 'employee_name', 'industry', 'country', 'num_employees'];
+    
+    foreach ($required_fields as $field) {
+        if (empty($org[$field])) {
+            return false;
+        }
+    }
+    
+    return true;
+}
+
+/**
+ * Get plugin version
+ */
+function cip_get_version() {
+    return CIP_VERSION;
+}
+
+/**
+ * Debug log (only if WP_DEBUG is enabled)
+ */
+function cip_debug_log($message, $data = null) {
+    if (defined('WP_DEBUG') && WP_DEBUG) {
+        error_log('[CleanIndex Portal] ' . $message);
+        if ($data !== null) {
+            error_log(print_r($data, true));
+        }
+    }
+}
