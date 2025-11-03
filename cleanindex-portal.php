@@ -3,7 +3,7 @@
  * Plugin Name: CleanIndex Portal
  * Plugin URI: https://cleanindex.com
  * Description: Complete ESG certification portal with CSRD/ESRS compliant assessment, multi-role dashboards, and approval workflow.
- * Version: 1.0.0
+ * Version: 1.0.1
  * Author: CleanIndex / Brnd Guru
  * Author URI: https://brndguru.com
  * License: GPL-2.0+
@@ -24,7 +24,7 @@ if (!defined('ABSPATH')) {
  * PLUGIN CONSTANTS
  * ========================================
  */
-define('CIP_VERSION', '1.0.0');
+define('CIP_VERSION', '1.0.1');
 define('CIP_PLUGIN_FILE', __FILE__);
 define('CIP_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('CIP_PLUGIN_URL', plugin_dir_url(__FILE__));
@@ -87,9 +87,31 @@ function cip_activate_plugin() {
     try {
         $charset_collate = $wpdb->get_charset_collate();
         
-        // Create company registrations table
+        // Backup and drop existing tables if they exist
         $table_registrations = $wpdb->prefix . 'company_registrations';
-        $sql_registrations = "CREATE TABLE IF NOT EXISTS $table_registrations (
+        $table_assessments = $wpdb->prefix . 'company_assessments';
+        
+        // Backup existing data from registrations table
+        $backup_registrations = [];
+        if ($wpdb->get_var("SHOW TABLES LIKE '$table_registrations'") === $table_registrations) {
+            $backup_registrations = $wpdb->get_results("SELECT * FROM $table_registrations", ARRAY_A);
+            error_log("CleanIndex Portal: Backed up " . count($backup_registrations) . " registration records");
+        }
+        
+        // Backup existing data from assessments table
+        $backup_assessments = [];
+        if ($wpdb->get_var("SHOW TABLES LIKE '$table_assessments'") === $table_assessments) {
+            $backup_assessments = $wpdb->get_results("SELECT * FROM $table_assessments", ARRAY_A);
+            error_log("CleanIndex Portal: Backed up " . count($backup_assessments) . " assessment records");
+        }
+        
+        // Drop existing tables
+        $wpdb->query("DROP TABLE IF EXISTS $table_registrations");
+        $wpdb->query("DROP TABLE IF EXISTS $table_assessments");
+        error_log("CleanIndex Portal: Dropped existing tables");
+        
+        // Create company registrations table with correct schema
+        $sql_registrations = "CREATE TABLE $table_registrations (
             id INT AUTO_INCREMENT PRIMARY KEY,
             company_name VARCHAR(255) NOT NULL,
             employee_name VARCHAR(255) NOT NULL,
@@ -113,10 +135,10 @@ function cip_activate_plugin() {
         
         require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
         dbDelta($sql_registrations);
+        error_log("CleanIndex Portal: Created registrations table with correct schema");
         
-        // Create assessments table
-        $table_assessments = $wpdb->prefix . 'company_assessments';
-        $sql_assessments = "CREATE TABLE IF NOT EXISTS $table_assessments (
+        // Create assessments table with correct schema
+        $sql_assessments = "CREATE TABLE $table_assessments (
             id INT AUTO_INCREMENT PRIMARY KEY,
             user_id INT NOT NULL,
             assessment_json LONGTEXT,
@@ -128,6 +150,55 @@ function cip_activate_plugin() {
         ) $charset_collate;";
         
         dbDelta($sql_assessments);
+        error_log("CleanIndex Portal: Created assessments table");
+        
+        // Restore backed up data to registrations table
+        if (!empty($backup_registrations)) {
+            $restored = 0;
+            foreach ($backup_registrations as $row) {
+                // Map old data to new schema (handle missing columns)
+                $insert_data = [
+                    'company_name' => isset($row['company_name']) ? $row['company_name'] : '',
+                    'employee_name' => isset($row['employee_name']) ? $row['employee_name'] : (isset($row['contact_name']) ? $row['contact_name'] : 'Unknown'),
+                    'org_type' => isset($row['org_type']) ? $row['org_type'] : 'Company',
+                    'industry' => isset($row['industry']) ? $row['industry'] : 'Other',
+                    'country' => isset($row['country']) ? $row['country'] : 'Other',
+                    'working_desc' => isset($row['working_desc']) ? $row['working_desc'] : (isset($row['description']) ? $row['description'] : ''),
+                    'num_employees' => isset($row['num_employees']) ? intval($row['num_employees']) : 0,
+                    'culture' => isset($row['culture']) ? $row['culture'] : '',
+                    'email' => isset($row['email']) ? $row['email'] : '',
+                    'password' => isset($row['password']) ? $row['password'] : '',
+                    'status' => isset($row['status']) ? $row['status'] : 'pending_manager_review',
+                    'manager_notes' => isset($row['manager_notes']) ? $row['manager_notes'] : '',
+                    'supporting_files' => isset($row['supporting_files']) ? $row['supporting_files'] : '[]'
+                ];
+                
+                // Only insert if email is valid
+                if (!empty($insert_data['email'])) {
+                    $result = $wpdb->insert($table_registrations, $insert_data);
+                    if ($result) $restored++;
+                }
+            }
+            error_log("CleanIndex Portal: Restored $restored registration records");
+        }
+        
+        // Restore backed up data to assessments table
+        if (!empty($backup_assessments)) {
+            $restored = 0;
+            foreach ($backup_assessments as $row) {
+                $insert_data = [
+                    'user_id' => isset($row['user_id']) ? intval($row['user_id']) : 0,
+                    'assessment_json' => isset($row['assessment_json']) ? $row['assessment_json'] : '',
+                    'progress' => isset($row['progress']) ? intval($row['progress']) : 0
+                ];
+                
+                if ($insert_data['user_id'] > 0) {
+                    $result = $wpdb->insert($table_assessments, $insert_data);
+                    if ($result) $restored++;
+                }
+            }
+            error_log("CleanIndex Portal: Restored $restored assessment records");
+        }
         
         // Create upload directories
         $upload_dirs = [
