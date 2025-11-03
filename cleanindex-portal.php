@@ -684,24 +684,6 @@ function cip_admin_system_page() {
 
 /**
  * ========================================
- * HELPER FUNCTION
- * ========================================
- */
-
-/**
- * Check if current page is a plugin page
- */
-function cip_is_plugin_page() {
-    if (!function_exists('cip_is_plugin_page') || !function_exists('get_query_var')) {
-        return false;
-    }
-    
-    $page = get_query_var('cip_page');
-    return !empty($page);
-}
-
-/**
- * ========================================
  * PLUGIN LOADED
  * ========================================
  */
@@ -751,13 +733,6 @@ if (!function_exists('cip_uninstall')) {
             delete_option('cip_max_file_size');
             delete_option('cip_allowed_file_types');
             delete_option('cip_remove_data_on_uninstall');
-            
-            // Remove upload directory
-            // Note: Be careful with this - only uncomment if you want to delete all files
-            // require_once(ABSPATH . 'wp-admin/includes/file.php');
-            // WP_Filesystem();
-            // global $wp_filesystem;
-            // $wp_filesystem->rmdir(CIP_UPLOAD_DIR, true);
         }
     }
 }
