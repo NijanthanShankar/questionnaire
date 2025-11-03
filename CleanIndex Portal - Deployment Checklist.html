@@ -1,0 +1,349 @@
+# CleanIndex Portal - Deployment Checklist
+
+## 🚀 **Pre-Launch Checklist**
+
+### ✅ **Phase 1: Installation (Day 1)**
+
+- [ ] **Server Requirements Met**
+  - PHP 7.4+ installed
+  - MySQL 5.7+ installed
+  - WordPress 5.8+ installed
+  - File upload limits set to 10MB+
+  
+- [ ] **Plugin Upload**
+  - Upload `cleanindex-portal` folder to `/wp-content/plugins/`
+  - Verify all files are present (check file structure)
+  - Set folder permissions to 755
+  - Set file permissions to 644
+
+- [ ] **Plugin Activation**
+  - Go to WordPress Admin → Plugins
+  - Activate "CleanIndex Portal"
+  - Verify no errors appear
+  - Check that database tables were created:
+    - `wp_company_registrations`
+    - `wp_company_assessments`
+
+- [ ] **Upload Directory**
+  - Verify `/wp-content/uploads/cleanindex/` was created
+  - Check subdirectories: `registration/` and `assessments/`
+  - Ensure directories are writable (775 permissions)
+
+---
+
+### ✅ **Phase 2: Configuration (Day 1-2)**
+
+- [ ] **Permalinks**
+  - Go to Settings → Permalinks
+  - Select "Post name" structure
+  - Click "Save Changes"
+  - Test URL: `yoursite.com/cleanindex/register`
+
+- [ ] **Email Configuration**
+  - Install "WP Mail SMTP" plugin
+  - Configure SMTP settings:
+    - Gmail, SendGrid, or Mailgun
+    - Test email delivery
+  - Verify "From" name: CleanIndex
+  - Verify "From" email: noreply@cleanindex.com
+
+- [ ] **Email Templates** (Optional Customization)
+  - Navigate to `/mailer/email-templates/`
+  - Edit `approval.html`, `rejection.html`, `info-request.html`
+  - Add your logo URL
+  - Customize colors if needed
+  - Test emails with real addresses
+
+- [ ] **User Roles Created**
+  - Verify "Manager" role exists
+  - Verify "Organization Admin" role exists
+  - Check Administrator has all capabilities
+
+---
+
+### ✅ **Phase 3: User Setup (Day 2)**
+
+- [ ] **Create Manager Account**
+  - Add New User in WordPress
+  - Username: `manager1`
+  - Email: manager@yourcompany.com
+  - Role: **Manager**
+  - Send password reset link
+
+- [ ] **Create Test Organization**
+  - Go to `/cleanindex/register`
+  - Fill out complete registration form
+  - Upload 1-2 test PDFs
+  - Submit registration
+  - Verify email received (if SMTP configured)
+
+- [ ] **Test Manager Workflow**
+  - Login as Manager
+  - Go to `/cleanindex/manager`
+  - View test submission
+  - Click "View" button
+  - Test "Recommend Approval" action
+  - Verify status changes to "Pending Admin Approval"
+
+- [ ] **Test Admin Workflow**
+  - Login as Administrator
+  - Go to `/cleanindex/admin-portal`
+  - View dashboard statistics
+  - View recommended submission
+  - Click "Approve Organization"
+  - Verify approval email sent
+  - Verify status changes to "Approved"
+
+- [ ] **Test Organization Dashboard**
+  - Login with test organization credentials
+  - Go to `/cleanindex/dashboard`
+  - Verify status shows "Approved"
+  - Check "Start Assessment" button appears
+  - Verify all organization details display correctly
+
+---
+
+### ✅ **Phase 4: Assessment Testing (Day 3)**
+
+- [ ] **Start Assessment**
+  - Login as approved organization
+  - Click "Start Assessment"
+  - Go through Step 1
+  - Fill in at least 2 questions
+  - Upload evidence file (PDF)
+  - Click "Save Progress"
+
+- [ ] **Test Multi-Step Navigation**
+  - Click "Next" to Step 2
+  - Click "Previous" back to Step 1
+  - Verify saved answers persist
+  - Check file uploads are retained
+
+- [ ] **Complete Full Assessment**
+  - Go through all 5 steps
+  - Answer at least 50% of questions
+  - Upload evidence for 3+ questions
+  - Click "Submit Assessment"
+  - Verify success message
+
+- [ ] **Assessment Progress Tracking**
+  - Return to dashboard
+  - Verify progress shows 100%
+  - Check "Assessment Complete" badge appears
+
+---
+
+### ✅ **Phase 5: Design & Branding (Day 3-4)**
+
+- [ ] **Color Customization**
+  - Edit `/css/style.css`
+  - Update CSS variables if needed:
+    ```css
+    --primary: #4CAF50;
+    --secondary: #EB5E28;
+    --accent: #03A9F4;
+    ```
+  - Clear browser cache and test
+
+- [ ] **Logo Integration**
+  - Add logo to dashboards
+  - Update email templates with logo URL
+  - Test on mobile devices
+
+- [ ] **Fonts Loading**
+  - Verify Google Fonts (Raleway, Open Sans, Inter) load
+  - Test on different browsers
+  - Check font fallbacks work
+
+- [ ] **Responsive Design**
+  - Test on mobile (iPhone/Android)
+  - Test on tablet (iPad)
+  - Test on desktop (1920px, 1440px, 1024px)
+  - Verify all forms are usable on mobile
+
+---
+
+### ✅ **Phase 6: Security & Performance (Day 4-5)**
+
+- [ ] **Security Headers**
+  - Add to `.htaccess`:
+    ```apache
+    Header set X-Content-Type-Options "nosniff"
+    Header set X-Frame-Options "SAMEORIGIN"
+    Header set X-XSS-Protection "1; mode=block"
+    ```
+
+- [ ] **File Upload Security**
+  - Test uploading non-PDF files (should be rejected)
+  - Test uploading files > 10MB (should be rejected)
+  - Verify uploaded files not directly accessible via URL
+  - Check `.htaccess` in upload directories
+
+- [ ] **Database Security**
+  - Verify all SQL queries use `$wpdb->prepare()`
+  - Test SQL injection attempts (should fail)
+  - Check no sensitive data in error logs
+
+- [ ] **Performance Optimization**
+  - Install caching plugin (WP Rocket or W3 Total Cache)
+  - Enable Gzip compression
+  - Minify CSS and JavaScript
+  - Optimize images in email templates
+  - Test page load speed (should be < 3 seconds)
+
+- [ ] **Backup System**
+  - Install backup plugin (UpdraftPlus)
+  - Configure daily backups
+  - Test restore from backup
+  - Store backups offsite (S3, Dropbox, etc.)
+
+---
+
+### ✅ **Phase 7: Content & Documentation (Day 5)**
+
+- [ ] **Help Documentation**
+  - Create user guide for organizations
+  - Create manager guide
+  - Create admin guide
+  - Add FAQ page
+
+- [ ] **Privacy Policy**
+  - Update privacy policy with data collection details
+  - Add GDPR compliance statement
+  - Link from registration page
+
+- [ ] **Terms of Service**
+  - Create ToS document
+  - Add acceptance checkbox to registration
+
+- [ ] **Email Templates Review**
+  - Proofread all email content
+  - Fix typos and grammar
+  - Test with real email clients (Gmail, Outlook)
+
+---
+
+### ✅ **Phase 8: Final Testing (Day 6)**
+
+- [ ] **End-to-End Test**
+  1. New organization registers
+  2. Manager reviews and recommends
+  3. Admin approves
+  4. Organization receives approval email
+  5. Organization completes assessment
+  6. Assessment is submitted
+  - **All steps should work flawlessly**
+
+- [ ] **Error Handling**
+  - Test with invalid email addresses
+  - Test with missing required fields
+  - Test with duplicate email registration
+  - Verify friendly error messages appear
+
+- [ ] **Browser Compatibility**
+  - [ ] Chrome (latest)
+  - [ ] Firefox (latest)
+  - [ ] Safari (latest)
+  - [ ] Edge (latest)
+
+- [ ] **Load Testing**
+  - Create 10+ test organizations
+  - Submit 10+ assessments
+  - Check database performance
+  - Monitor server resource usage
+
+---
+
+### ✅ **Phase 9: Go Live (Day 7)**
+
+- [ ] **Production Checklist**
+  - [ ] All test data deleted
+  - [ ] Real manager accounts created
+  - [ ] SSL certificate installed (HTTPS)
+  - [ ] DNS records updated
+  - [ ] Email deliverability verified
+  - [ ] Monitoring tools enabled
+  - [ ] Backup system running
+
+- [ ] **Launch Communication**
+  - [ ] Announce to internal team
+  - [ ] Send launch email to first users
+  - [ ] Update website with registration link
+  - [ ] Post on social media (if applicable)
+
+- [ ] **Post-Launch Monitoring**
+  - Monitor error logs daily (first week)
+  - Check email delivery rates
+  - Track registration submissions
+  - Respond to user feedback
+  - Fix any issues immediately
+
+---
+
+## 📋 **Quick Reference**
+
+### **Key URLs**
+```
+Registration:     /cleanindex/register
+Login:            /cleanindex/login
+User Dashboard:   /cleanindex/dashboard
+Assessment:       /cleanindex/assessment
+Manager Portal:   /cleanindex/manager
+Admin Portal:     /cleanindex/admin-portal
+```
+
+### **Database Tables**
+```
+wp_company_registrations
+wp_company_assessments
+```
+
+### **File Locations**
+```
+Plugin:           /wp-content/plugins/cleanindex-portal/
+Uploads:          /wp-content/uploads/cleanindex/
+Email Templates:  /mailer/email-templates/
+```
+
+### **Support Contacts**
+```
+Technical Support:  support@cleanindex.com
+Developer:          shivanshu@brndguru.com
+Documentation:      docs.cleanindex.com
+```
+
+---
+
+## 🔥 **Troubleshooting**
+
+### **Issue: 404 on Plugin Pages**
+✅ Solution: Settings → Permalinks → Save Changes
+
+### **Issue: Emails Not Sending**
+✅ Solution: Install WP Mail SMTP, configure provider, test
+
+### **Issue: File Upload Fails**
+✅ Solution: Check PHP upload_max_filesize, check folder permissions
+
+### **Issue: Database Table Not Created**
+✅ Solution: Deactivate plugin, reactivate, check database
+
+### **Issue: White Screen After Activation**
+✅ Solution: Check error logs, disable all other plugins, test
+
+---
+
+## 📞 **Need Help?**
+
+If you encounter any issues during deployment:
+
+1. Check the error logs: `/wp-content/debug.log`
+2. Review the README.md file
+3. Contact developer: shivanshu@brndguru.com
+4. Documentation: docs.cleanindex.com/troubleshooting
+
+---
+
+**Last Updated**: October 31, 2025  
+**Version**: 1.0  
+**Status**: Production Ready ✅
