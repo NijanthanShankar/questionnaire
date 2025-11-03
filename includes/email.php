@@ -113,9 +113,9 @@ function cip_get_default_approval_email($data) {
             <p>We are pleased to inform you that your registration with CleanIndex has been <strong>approved</strong>!</p>
             <p>You can now access your dashboard and begin your ESG assessment journey.</p>
             <a href="' . esc_url($data['assessment_link']) . '" class="button">Start Your Assessment</a>
-            <p>If you have any questions, please don't hesitate to reach out to our support team.</p>
+            <p>If you have any questions, please do not hesitate to reach out to our support team.</p>
             <div class="footer">
-                <p>© ' . $data['year'] . ' CleanIndex. All rights reserved.</p>
+                <p>© ' . esc_html($data['year']) . ' CleanIndex. All rights reserved.</p>
             </div>
         </div>
     </body>
@@ -145,7 +145,7 @@ function cip_get_default_rejection_email($data) {
             <p>Please update your registration details and provide the necessary documentation.</p>
             <a href="' . esc_url($data['register_link']) . '" class="button">Update Registration</a>
             <div class="footer">
-                <p>© ' . $data['year'] . ' CleanIndex. All rights reserved.</p>
+                <p>© ' . esc_html($data['year']) . ' CleanIndex. All rights reserved.</p>
             </div>
         </div>
     </body>
@@ -177,7 +177,7 @@ function cip_get_default_info_request_email($data) {
             </div>
             <a href="' . esc_url($data['dashboard_link']) . '" class="button">Go to Dashboard</a>
             <div class="footer">
-                <p>© ' . $data['year'] . ' CleanIndex. All rights reserved.</p>
+                <p>© ' . esc_html($data['year']) . ' CleanIndex. All rights reserved.</p>
             </div>
         </div>
     </body>
