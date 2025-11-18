@@ -12,9 +12,11 @@
  * - $activated
  * - $stats
  */
-
-if (!defined('ABSPATH')) exit;
-?>
+/**
+ * ============================================
+ * FILE 4: settings-page.php (ENHANCED WITH PRICING)
+ * ============================================
+ */
 
 <div class="wrap">
     <h1>
@@ -25,145 +27,314 @@ if (!defined('ABSPATH')) exit;
     <?php if ($activated): ?>
         <div class="notice notice-success is-dismissible">
             <p><strong>✅ Plugin Activated Successfully!</strong></p>
-            <p><?php _e('Next steps:', 'cleanindex-portal'); ?></p>
-            <ol>
-                <li><?php _e('Go to', 'cleanindex-portal'); ?> <a href="<?php echo admin_url('options-permalink.php'); ?>"><?php _e('Settings > Permalinks', 'cleanindex-portal'); ?></a> <?php _e('and click "Save Changes"', 'cleanindex-portal'); ?></li>
-                <li><?php _e('Configure your settings below', 'cleanindex-portal'); ?></li>
-                <li><?php _e('Test the registration page:', 'cleanindex-portal'); ?> <a href="<?php echo home_url('/cleanindex/register'); ?>" target="_blank"><?php _e('View Registration Page', 'cleanindex-portal'); ?></a></li>
-            </ol>
         </div>
     <?php endif; ?>
     
-    <!-- Quick Links -->
-    <div style="background: #fff; padding: 20px; margin: 20px 0; border-left: 4px solid #4CAF50; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-        <h2 style="margin-top: 0;">🔗 <?php _e('Quick Links', 'cleanindex-portal'); ?></h2>
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
-            <a href="<?php echo home_url('/cleanindex/register'); ?>" class="button" target="_blank">📝 <?php _e('Registration Page', 'cleanindex-portal'); ?></a>
-            <a href="<?php echo home_url('/cleanindex/login'); ?>" class="button" target="_blank">🔐 <?php _e('Login Page', 'cleanindex-portal'); ?></a>
-            <a href="<?php echo home_url('/cleanindex/admin-portal'); ?>" class="button button-primary" target="_blank">⚡ <?php _e('Admin Portal', 'cleanindex-portal'); ?></a>
-            <a href="<?php echo home_url('/cleanindex/manager'); ?>" class="button" target="_blank">👔 <?php _e('Manager Portal', 'cleanindex-portal'); ?></a>
-        </div>
-    </div>
+    <h2 class="nav-tab-wrapper">
+        <a href="#general" class="nav-tab nav-tab-active" onclick="switchTab(event, 'general')">⚙️ General</a>
+        <a href="#pricing" class="nav-tab" onclick="switchTab(event, 'pricing')">💰 Pricing Plans</a>
+        <a href="#certificates" class="nav-tab" onclick="switchTab(event, 'certificates')">🏆 Certificates</a>
+        <a href="#payment" class="nav-tab" onclick="switchTab(event, 'payment')">💳 Payment Gateway</a>
+    </h2>
     
-    <!-- Statistics Dashboard -->
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 20px 0;">
-        <div style="background: #fff; padding: 20px; text-align: center; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-            <div style="font-size: 36px; font-weight: bold; color: #4CAF50;"><?php echo $stats['total']; ?></div>
-            <div style="color: #666; margin-top: 5px;"><?php _e('Total Registrations', 'cleanindex-portal'); ?></div>
-        </div>
-        <div style="background: #fff; padding: 20px; text-align: center; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-            <div style="font-size: 36px; font-weight: bold; color: #EB5E28;"><?php echo $stats['pending']; ?></div>
-            <div style="color: #666; margin-top: 5px;"><?php _e('Pending Review', 'cleanindex-portal'); ?></div>
-        </div>
-        <div style="background: #fff; padding: 20px; text-align: center; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-            <div style="font-size: 36px; font-weight: bold; color: #4CAF50;"><?php echo $stats['approved']; ?></div>
-            <div style="color: #666; margin-top: 5px;"><?php _e('Approved', 'cleanindex-portal'); ?></div>
-        </div>
-        <div style="background: #fff; padding: 20px; text-align: center; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-            <div style="font-size: 36px; font-weight: bold; color: #999;"><?php echo $stats['rejected']; ?></div>
-            <div style="color: #666; margin-top: 5px;"><?php _e('Rejected', 'cleanindex-portal'); ?></div>
-        </div>
-    </div>
-    
-    <!-- Settings Form -->
     <form method="post" action="">
         <?php wp_nonce_field('cip_settings_action', 'cip_settings_nonce'); ?>
         
-        <div style="background: #fff; padding: 20px; margin: 20px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-            <h2><?php _e('General Settings', 'cleanindex-portal'); ?></h2>
-            
-            <table class="form-table">
-                <tr>
-                    <th scope="row"><?php _e('Company Name', 'cleanindex-portal'); ?></th>
-                    <td>
-                        <input type="text" name="company_name" value="<?php echo esc_attr($company_name); ?>" class="regular-text">
-                        <p class="description"><?php _e('This name appears in emails and throughout the portal', 'cleanindex-portal'); ?></p>
-                    </td>
-                </tr>
-                
-                <tr>
-                    <th scope="row"><?php _e('Admin Email', 'cleanindex-portal'); ?></th>
-                    <td>
-                        <input type="email" name="admin_email" value="<?php echo esc_attr($admin_email); ?>" class="regular-text">
-                        <p class="description"><?php _e('Notifications will be sent to this email', 'cleanindex-portal'); ?></p>
-                    </td>
-                </tr>
-                
-                <tr>
-                    <th scope="row"><?php _e('Enable Registration', 'cleanindex-portal'); ?></th>
-                    <td>
-                        <label>
-                            <input type="checkbox" name="enable_registration" value="1" <?php checked($enable_registration, '1'); ?>>
-                            <?php _e('Allow new organizations to register', 'cleanindex-portal'); ?>
-                        </label>
-                    </td>
-                </tr>
-                
-                <tr>
-                    <th scope="row"><?php _e('Auto-Approval', 'cleanindex-portal'); ?></th>
-                    <td>
-                        <label>
-                            <input type="checkbox" name="enable_auto_approval" value="1" <?php checked($enable_auto_approval, '1'); ?>>
-                            <?php _e('Automatically approve registrations (bypass manager review)', 'cleanindex-portal'); ?>
-                        </label>
-                        <p class="description">⚠️ <?php _e('Use with caution - not recommended for production', 'cleanindex-portal'); ?></p>
-                    </td>
-                </tr>
-            </table>
+        <!-- General Settings Tab -->
+        <div id="tab-general" class="tab-content" style="display: block;">
+            <div style="background: #fff; padding: 20px; margin: 20px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                <h2>📊 General Settings</h2>
+                <table class="form-table">
+                    <tr>
+                        <th>Company Name</th>
+                        <td><input type="text" name="company_name" value="<?php echo esc_attr($company_name); ?>" class="regular-text"></td>
+                    </tr>
+                    <tr>
+                        <th>Admin Email</th>
+                        <td><input type="email" name="admin_email" value="<?php echo esc_attr($admin_email); ?>" class="regular-text"></td>
+                    </tr>
+                    <tr>
+                        <th>Enable Registration</th>
+                        <td>
+                            <label>
+                                <input type="checkbox" name="enable_registration" value="1" <?php checked($enable_registration, '1'); ?>>
+                                Allow new organizations to register
+                            </label>
+                        </td>
+                    </tr>
+                </table>
+            </div>
         </div>
         
-        <div style="background: #fff; padding: 20px; margin: 20px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-            <h2><?php _e('File Upload Settings', 'cleanindex-portal'); ?></h2>
-            
-            <table class="form-table">
-                <tr>
-                    <th scope="row"><?php _e('Max File Size (MB)', 'cleanindex-portal'); ?></th>
-                    <td>
-                        <input type="number" name="max_file_size" value="<?php echo esc_attr($max_file_size); ?>" min="1" max="100" class="small-text">
-                        <p class="description"><?php printf(__('Maximum file size for uploads (current server limit: %s)', 'cleanindex-portal'), ini_get('upload_max_filesize')); ?></p>
-                    </td>
-                </tr>
+        <!-- Pricing Plans Tab -->
+        <div id="tab-pricing" class="tab-content" style="display: none;">
+            <div style="background: #fff; padding: 20px; margin: 20px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                <h2>💰 Pricing Plans Configuration</h2>
+                <p>Configure your subscription pricing tiers. Plans will appear on the pricing page.</p>
                 
-                <tr>
-                    <th scope="row"><?php _e('Allowed File Types', 'cleanindex-portal'); ?></th>
-                    <td>
-                        <input type="text" name="allowed_file_types" value="<?php echo esc_attr($allowed_file_types); ?>" class="regular-text">
-                        <p class="description"><?php _e('Comma-separated list (e.g., pdf,doc,docx)', 'cleanindex-portal'); ?></p>
-                    </td>
-                </tr>
-            </table>
+                <div id="pricing-plans-container">
+                    <?php
+                    $pricing_plans = get_option('cip_pricing_plans', []);
+                    if (empty($pricing_plans)) {
+                        $pricing_plans = [
+                            ['name' => 'Basic', 'price' => '499', 'currency' => 'EUR', 'features' => 'ESG Assessment
+Basic Certificate
+Email Support
+1 Year Validity', 'popular' => false],
+                            ['name' => 'Professional', 'price' => '999', 'currency' => 'EUR', 'features' => 'ESG Assessment
+Premium Certificate
+Priority Support
+2 Years Validity
+Benchmarking Report
+Directory Listing', 'popular' => true],
+                            ['name' => 'Enterprise', 'price' => '1999', 'currency' => 'EUR', 'features' => 'ESG Assessment
+Premium Certificate
+Dedicated Support
+3 Years Validity
+Detailed Analytics
+Featured Directory Listing
+Custom Reporting
+API Access', 'popular' => false]
+                        ];
+                    }
+                    
+                    foreach ($pricing_plans as $index => $plan):
+                    ?>
+                        <div class="pricing-plan-item" style="background: #f9f9f9; padding: 20px; margin-bottom: 20px; border-radius: 8px; border-left: 4px solid #4CAF50;">
+                            <h3>Plan <?php echo $index + 1; ?></h3>
+                            <table class="form-table">
+                                <tr>
+                                    <th style="width: 200px;">Plan Name</th>
+                                    <td><input type="text" name="pricing_plans[<?php echo $index; ?>][name]" value="<?php echo esc_attr($plan['name']); ?>" class="regular-text"></td>
+                                </tr>
+                                <tr>
+                                    <th>Price</th>
+                                    <td>
+                                        <input type="number" name="pricing_plans[<?php echo $index; ?>][price]" value="<?php echo esc_attr($plan['price']); ?>" class="small-text">
+                                        <select name="pricing_plans[<?php echo $index; ?>][currency]">
+                                            <option value="EUR" <?php selected($plan['currency'], 'EUR'); ?>>EUR (€)</option>
+                                            <option value="USD" <?php selected($plan['currency'], 'USD'); ?>>USD ($)</option>
+                                            <option value="GBP" <?php selected($plan['currency'], 'GBP'); ?>>GBP (£)</option>
+                                        </select>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <th>Features</th>
+                                    <td>
+                                        <textarea name="pricing_plans[<?php echo $index; ?>][features]" rows="6" class="large-text" placeholder="One feature per line"><?php echo esc_textarea($plan['features']); ?></textarea>
+                                        <p class="description">Enter one feature per line</p>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <th>Mark as Popular</th>
+                                    <td>
+                                        <label>
+                                            <input type="checkbox" name="pricing_plans[<?php echo $index; ?>][popular]" value="1" <?php checked(!empty($plan['popular'])); ?>>
+                                            Highlight this plan as most popular
+                                        </label>
+                                    </td>
+                                </tr>
+                            </table>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+                
+                <button type="button" onclick="addPricingPlan()" class="button button-secondary">➕ Add Another Plan</button>
+            </div>
+        </div>
+        
+        <!-- Certificates Tab -->
+        <div id="tab-certificates" class="tab-content" style="display: none;">
+            <div style="background: #fff; padding: 20px; margin: 20px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                <h2>🏆 Certificate Settings</h2>
+                
+                <table class="form-table">
+                    <tr>
+                        <th>Grading System</th>
+                        <td>
+                            <label>
+                                <input type="radio" name="cert_grading_mode" value="automatic" <?php checked(get_option('cip_cert_grading_mode', 'automatic'), 'automatic'); ?>>
+                                <strong>Automatic</strong> - Grade based on assessment score
+                            </label><br>
+                            <label style="margin-top: 10px; display: block;">
+                                <input type="radio" name="cert_grading_mode" value="manual" <?php checked(get_option('cip_cert_grading_mode'), 'manual'); ?>>
+                                <strong>Manual</strong> - Admin selects grade for each certificate
+                            </label>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>Grade Thresholds (Automatic Mode)</th>
+                        <td>
+                            <table style="max-width: 400px;">
+                                <tr>
+                                    <td><strong>ESG+++</strong></td>
+                                    <td>≥ <input type="number" name="cert_grade_esg3" value="<?php echo esc_attr(get_option('cip_cert_grade_esg3', '95')); ?>" class="small-text" min="0" max="100">%</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>ESG++</strong></td>
+                                    <td>≥ <input type="number" name="cert_grade_esg2" value="<?php echo esc_attr(get_option('cip_cert_grade_esg2', '85')); ?>" class="small-text" min="0" max="100">%</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>ESG+</strong></td>
+                                    <td>≥ <input type="number" name="cert_grade_esg1" value="<?php echo esc_attr(get_option('cip_cert_grade_esg1', '75')); ?>" class="small-text" min="0" max="100">%</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>ESG</strong></td>
+                                    <td>< 75%</td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>Certificate Validity</th>
+                        <td>
+                            <input type="number" name="cert_validity_years" value="<?php echo esc_attr(get_option('cip_cert_validity_years', '1')); ?>" class="small-text" min="1" max="5">
+                            years
+                        </td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+        
+        <!-- Payment Gateway Tab -->
+        <div id="tab-payment" class="tab-content" style="display: none;">
+            <div style="background: #fff; padding: 20px; margin: 20px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                <h2>💳 Payment Gateway Configuration</h2>
+                
+                <table class="form-table">
+                    <tr>
+                        <th>Payment Gateway</th>
+                        <td>
+                            <select name="payment_gateway" id="payment_gateway" onchange="toggleGatewaySettings()">
+                                <option value="stripe" <?php selected(get_option('cip_payment_gateway', 'stripe'), 'stripe'); ?>>Stripe</option>
+                                <option value="paypal" <?php selected(get_option('cip_payment_gateway'), 'paypal'); ?>>PayPal</option>
+                                <option value="mollie" <?php selected(get_option('cip_payment_gateway'), 'mollie'); ?>>Mollie</option>
+                            </select>
+                        </td>
+                    </tr>
+                    
+                    <tr id="stripe-settings" style="<?php echo get_option('cip_payment_gateway', 'stripe') !== 'stripe' ? 'display:none;' : ''; ?>">
+                        <th>Stripe Configuration</th>
+                        <td>
+                            <p><strong>Publishable Key</strong></p>
+                            <input type="text" name="stripe_publishable_key" value="<?php echo esc_attr(get_option('cip_stripe_publishable_key')); ?>" class="regular-text" placeholder="pk_live_...">
+                            
+                            <p style="margin-top: 15px;"><strong>Secret Key</strong></p>
+                            <input type="password" name="stripe_secret_key" value="<?php echo esc_attr(get_option('cip_stripe_secret_key')); ?>" class="regular-text" placeholder="sk_live_...">
+                            
+                            <p class="description">Get your keys from <a href="https://dashboard.stripe.com/apikeys" target="_blank">Stripe Dashboard</a></p>
+                        </td>
+                    </tr>
+                    
+                    <tr id="paypal-settings" style="<?php echo get_option('cip_payment_gateway') !== 'paypal' ? 'display:none;' : ''; ?>">
+                        <th>PayPal Configuration</th>
+                        <td>
+                            <p><strong>Client ID</strong></p>
+                            <input type="text" name="paypal_client_id" value="<?php echo esc_attr(get_option('cip_paypal_client_id')); ?>" class="regular-text">
+                            
+                            <p style="margin-top: 15px;"><strong>Secret</strong></p>
+                            <input type="password" name="paypal_secret" value="<?php echo esc_attr(get_option('cip_paypal_secret')); ?>" class="regular-text">
+                            
+                            <p style="margin-top: 15px;">
+                                <label>
+                                    <input type="checkbox" name="paypal_sandbox" value="1" <?php checked(get_option('cip_paypal_sandbox'), '1'); ?>>
+                                    Use Sandbox Mode (for testing)
+                                </label>
+                            </p>
+                        </td>
+                    </tr>
+                    
+                    <tr>
+                        <th>Currency</th>
+                        <td>
+                            <select name="payment_currency">
+                                <option value="EUR" <?php selected(get_option('cip_payment_currency', 'EUR'), 'EUR'); ?>>EUR (€)</option>
+                                <option value="USD" <?php selected(get_option('cip_payment_currency'), 'USD'); ?>>USD ($)</option>
+                                <option value="GBP" <?php selected(get_option('cip_payment_currency'), 'GBP'); ?>>GBP (£)</option>
+                            </select>
+                        </td>
+                    </tr>
+                </table>
+            </div>
         </div>
         
         <p class="submit">
             <button type="submit" name="cip_settings_submit" class="button button-primary button-large">
-                💾 <?php _e('Save Settings', 'cleanindex-portal'); ?>
+                💾 Save All Settings
             </button>
         </p>
     </form>
-    
-    <!-- Troubleshooting Section -->
-    <div style="background: #fff3e0; padding: 20px; margin: 20px 0; border-left: 4px solid #ff9800;">
-        <h2 style="margin-top: 0;">🔧 <?php _e('Troubleshooting', 'cleanindex-portal'); ?></h2>
-        
-        <h3><?php _e('Pages Showing 404 Error?', 'cleanindex-portal'); ?></h3>
-        <ol>
-            <li><?php _e('Go to', 'cleanindex-portal'); ?> <a href="<?php echo admin_url('options-permalink.php'); ?>"><?php _e('Settings > Permalinks', 'cleanindex-portal'); ?></a></li>
-            <li><?php _e('Click "Save Changes" (don\'t modify anything)', 'cleanindex-portal'); ?></li>
-            <li><?php _e('Test your pages again', 'cleanindex-portal'); ?></li>
-        </ol>
-        
-        <h3><?php _e('Emails Not Sending?', 'cleanindex-portal'); ?></h3>
-        <ol>
-            <li><?php _e('Install', 'cleanindex-portal'); ?> <strong>WP Mail SMTP</strong> <?php _e('plugin', 'cleanindex-portal'); ?></li>
-            <li><?php _e('Configure your email provider (Gmail, SendGrid, etc.)', 'cleanindex-portal'); ?></li>
-            <li><?php _e('Test email delivery', 'cleanindex-portal'); ?></li>
-        </ol>
-        
-        <h3><?php _e('File Uploads Failing?', 'cleanindex-portal'); ?></h3>
-        <ol>
-            <li><?php printf(__('Check server upload limits: %s', 'cleanindex-portal'), '<code>' . ini_get('upload_max_filesize') . '</code>'); ?></li>
-            <li><?php printf(__('Verify folder permissions: %s', 'cleanindex-portal'), '<code>' . CIP_UPLOAD_DIR . '</code>'); ?></li>
-            <li><?php _e('Ensure folder is writable (755 for directories)', 'cleanindex-portal'); ?></li>
-        </ol>
-    </div>
 </div>
+
+<script>
+function switchTab(e, tabName) {
+    e.preventDefault();
+    
+    // Hide all tabs
+    document.querySelectorAll('.tab-content').forEach(tab => {
+        tab.style.display = 'none';
+    });
+    
+    // Remove active class from all nav tabs
+    document.querySelectorAll('.nav-tab').forEach(tab => {
+        tab.classList.remove('nav-tab-active');
+    });
+    
+    // Show selected tab
+    document.getElementById('tab-' + tabName).style.display = 'block';
+    e.target.classList.add('nav-tab-active');
+}
+
+function toggleGatewaySettings() {
+    const gateway = document.getElementById('payment_gateway').value;
+    document.getElementById('stripe-settings').style.display = gateway === 'stripe' ? 'table-row' : 'none';
+    document.getElementById('paypal-settings').style.display = gateway === 'paypal' ? 'table-row' : 'none';
+}
+
+let planCounter = <?php echo count($pricing_plans); ?>;
+
+function addPricingPlan() {
+    const container = document.getElementById('pricing-plans-container');
+    const newPlan = document.createElement('div');
+    newPlan.className = 'pricing-plan-item';
+    newPlan.style.cssText = 'background: #f9f9f9; padding: 20px; margin-bottom: 20px; border-radius: 8px; border-left: 4px solid #4CAF50;';
+    newPlan.innerHTML = `
+        <h3>Plan ${planCounter + 1}</h3>
+        <table class="form-table">
+            <tr>
+                <th style="width: 200px;">Plan Name</th>
+                <td><input type="text" name="pricing_plans[${planCounter}][name]" value="" class="regular-text"></td>
+            </tr>
+            <tr>
+                <th>Price</th>
+                <td>
+                    <input type="number" name="pricing_plans[${planCounter}][price]" value="" class="small-text">
+                    <select name="pricing_plans[${planCounter}][currency]">
+                        <option value="EUR">EUR (€)</option>
+                        <option value="USD">USD ($)</option>
+                        <option value="GBP">GBP (£)</option>
+                    </select>
+                </td>
+            </tr>
+            <tr>
+                <th>Features</th>
+                <td>
+                    <textarea name="pricing_plans[${planCounter}][features]" rows="6" class="large-text" placeholder="One feature per line"></textarea>
+                    <p class="description">Enter one feature per line</p>
+                </td>
+            </tr>
+            <tr>
+                <th>Mark as Popular</th>
+                <td>
+                    <label>
+                        <input type="checkbox" name="pricing_plans[${planCounter}][popular]" value="1">
+                        Highlight this plan as most popular
+                    </label>
+                </td>
+            </tr>
+        </table>
+    `;
+    container.appendChild(newPlan);
+    planCounter++;
+}
+</script>
