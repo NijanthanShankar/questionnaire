@@ -2,8 +2,8 @@
 /**
  * Plugin Name: CleanIndex Portal
  * Plugin URI: https://cleanindex.com
- * Description: Complete ESG certification portal with CSRD/ESRS compliant assessment, multi-role dashboards, and approval workflow.
- * Version: 1.0.1
+ * Description: Complete ESG certification portal with CSRD/ESRS compliant assessment, multi-role dashboards, payment processing, and certificate generation.
+ * Version: 1.1.0
  * Author: CleanIndex / Brnd Guru
  * Author URI: https://brndguru.com
  * License: GPL-2.0+
@@ -24,7 +24,7 @@ if (!defined('ABSPATH')) {
  * PLUGIN CONSTANTS
  * ========================================
  */
-define('CIP_VERSION', '1.0.1');
+define('CIP_VERSION', '1.1.0');
 define('CIP_PLUGIN_FILE', __FILE__);
 define('CIP_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('CIP_PLUGIN_URL', plugin_dir_url(__FILE__));
@@ -43,7 +43,8 @@ $required_files = [
     'includes/auth.php',
     'includes/email.php',
     'includes/upload-handler.php',
-    'includes/helpers.php'
+    'includes/helpers.php',
+    'includes/pdf-generator.php'
 ];
 
 $missing_files = [];
@@ -204,7 +205,8 @@ function cip_activate_plugin() {
         $upload_dirs = [
             CIP_UPLOAD_DIR,
             CIP_UPLOAD_DIR . 'registration/',
-            CIP_UPLOAD_DIR . 'assessments/'
+            CIP_UPLOAD_DIR . 'assessments/',
+            CIP_UPLOAD_DIR . 'certificates/'
         ];
         
         foreach ($upload_dirs as $dir) {
@@ -221,6 +223,42 @@ function cip_activate_plugin() {
         // Add custom roles
         if (function_exists('cip_add_custom_roles')) {
             cip_add_custom_roles();
+        }
+        
+        // Set default pricing plans if not exist
+        if (!get_option('cip_pricing_plans')) {
+            update_option('cip_pricing_plans', [
+                [
+                    'name' => 'Basic',
+                    'price' => '499',
+                    'currency' => 'EUR',
+                    'features' => "ESG Assessment\nBasic Certificate\nEmail Support\n1 Year Validity",
+                    'popular' => false
+                ],
+                [
+                    'name' => 'Professional',
+                    'price' => '999',
+                    'currency' => 'EUR',
+                    'features' => "ESG Assessment\nPremium Certificate\nPriority Support\n2 Years Validity\nBenchmarking Report\nDirectory Listing",
+                    'popular' => true
+                ],
+                [
+                    'name' => 'Enterprise',
+                    'price' => '1999',
+                    'currency' => 'EUR',
+                    'features' => "ESG Assessment\nPremium Certificate\nDedicated Support\n3 Years Validity\nDetailed Analytics\nFeatured Directory Listing\nCustom Reporting\nAPI Access",
+                    'popular' => false
+                ]
+            ]);
+        }
+        
+        // Set default certificate settings
+        if (!get_option('cip_cert_grading_mode')) {
+            update_option('cip_cert_grading_mode', 'automatic');
+            update_option('cip_cert_grade_esg3', 95);
+            update_option('cip_cert_grade_esg2', 85);
+            update_option('cip_cert_grade_esg1', 75);
+            update_option('cip_cert_validity_years', 1);
         }
         
         // Add rewrite rules and flush
@@ -385,7 +423,13 @@ function cip_add_rewrite_rules() {
         'assessment',
         'manager',
         'admin-portal',
-        'reset-password'
+        'reset-password',
+        'pricing',
+        'checkout',
+        'certificate',
+        'payment-success',
+        'download-assessment-pdf',
+        'download-certificate'
     ];
     
     // Add rewrite rule for each page
@@ -396,6 +440,13 @@ function cip_add_rewrite_rules() {
             'top'
         );
     }
+    
+    // Certificate verification
+    add_rewrite_rule(
+        '^cleanindex/verify/([^/]+)/?$',
+        'index.php?cip_page=verify&cert_number=$matches[1]',
+        'top'
+    );
 }
 
 /**
@@ -407,6 +458,7 @@ add_filter('query_vars', 'cip_query_vars');
 
 function cip_query_vars($vars) {
     $vars[] = 'cip_page';
+    $vars[] = 'cert_number';
     return $vars;
 }
 
@@ -424,6 +476,22 @@ function cip_template_redirect() {
         return;
     }
     
+    // Handle PDF downloads
+    if ($page === 'download-assessment-pdf') {
+        cip_download_assessment_pdf();
+        exit;
+    }
+    
+    if ($page === 'download-certificate') {
+        cip_download_certificate();
+        exit;
+    }
+    
+    if ($page === 'verify') {
+        cip_verify_certificate();
+        exit;
+    }
+    
     // Define template map
     $template_map = [
         'register' => 'pages/register.php',
@@ -431,7 +499,11 @@ function cip_template_redirect() {
         'dashboard' => 'pages/user-dashboard.php',
         'assessment' => 'pages/assessment.php',
         'manager' => 'pages/manager-dashboard.php',
-        'admin-portal' => 'pages/admin-dashboard.php'
+        'admin-portal' => 'pages/admin-dashboard.php',
+        'pricing' => 'pages/pricing.php',
+        'checkout' => 'pages/checkout.php',
+        'certificate' => 'pages/certificate-view.php',
+        'payment-success' => 'pages/payment-success.php'
     ];
     
     // Check if page exists in map
@@ -466,6 +538,160 @@ function cip_template_redirect() {
             ['response' => 404]
         );
     }
+}
+
+/**
+ * ========================================
+ * PDF DOWNLOAD HANDLERS
+ * ========================================
+ */
+function cip_download_assessment_pdf() {
+    if (!is_user_logged_in()) {
+        wp_die('Not authorized');
+    }
+    
+    $user = wp_get_current_user();
+    global $wpdb;
+    $table = $wpdb->prefix . 'company_registrations';
+    $registration = $wpdb->get_row($wpdb->prepare(
+        "SELECT * FROM $table WHERE email = %s",
+        $user->user_email
+    ), ARRAY_A);
+    
+    if (!$registration) {
+        wp_die('Registration not found');
+    }
+    
+    if (class_exists('CIP_PDF_Generator')) {
+        $result = CIP_PDF_Generator::generate_assessment_pdf($registration['id']);
+        
+        if ($result['success']) {
+            header('Content-Type: application/pdf');
+            header('Content-Disposition: attachment; filename="ESG_Assessment.pdf"');
+            readfile($result['path']);
+            exit;
+        }
+    }
+    
+    wp_die('Error generating PDF');
+}
+
+function cip_download_certificate() {
+    if (!is_user_logged_in()) {
+        wp_die('Not authorized');
+    }
+    
+    $cert_url = get_user_meta(get_current_user_id(), 'cip_certificate_url', true);
+    
+    if (!$cert_url) {
+        wp_die('Certificate not found');
+    }
+    
+    $cert_path = str_replace(CIP_UPLOAD_URL, CIP_UPLOAD_DIR, $cert_url);
+    
+    if (file_exists($cert_path)) {
+        header('Content-Type: application/pdf');
+        header('Content-Disposition: attachment; filename="ESG_Certificate.pdf"');
+        readfile($cert_path);
+        exit;
+    } else {
+        wp_die('Certificate file not found');
+    }
+}
+
+function cip_verify_certificate() {
+    $cert_number = get_query_var('cert_number');
+    
+    if (!$cert_number) {
+        wp_die('Invalid certificate number');
+    }
+    
+    // Search for certificate in user meta
+    global $wpdb;
+    $user_id = $wpdb->get_var($wpdb->prepare(
+        "SELECT user_id FROM {$wpdb->usermeta} WHERE meta_key = 'cip_certificate_number' AND meta_value = %s",
+        $cert_number
+    ));
+    
+    if ($user_id) {
+        $grade = get_user_meta($user_id, 'cip_certificate_grade', true);
+        $table = $wpdb->prefix . 'company_registrations';
+        $registration = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM $table WHERE id IN (SELECT user_id FROM {$wpdb->usermeta} WHERE meta_key = 'cip_certificate_number' AND meta_value = %s)",
+            $cert_number
+        ), ARRAY_A);
+        
+        if ($registration) {
+            // Display verification page
+            echo '<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Certificate Verification - CleanIndex</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; display: flex; align-items: center; justify-content: center; margin: 0; padding: 20px; }
+        .container { background: white; border-radius: 20px; padding: 3rem; max-width: 600px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); text-align: center; }
+        .verified { color: #4CAF50; font-size: 4rem; margin-bottom: 1rem; }
+        h1 { color: #333; margin-bottom: 0.5rem; }
+        .cert-number { font-family: "Courier New", monospace; font-size: 1.25rem; color: #666; padding: 1rem; background: #f5f5f5; border-radius: 8px; margin: 1.5rem 0; }
+        .grade { display: inline-block; background: #4CAF50; color: white; padding: 1rem 2rem; border-radius: 50px; font-size: 2rem; font-weight: bold; margin: 1rem 0; }
+        .company { font-size: 1.5rem; font-weight: 600; color: #333; margin: 1.5rem 0; }
+        .info { color: #666; margin: 0.5rem 0; }
+        .footer { margin-top: 2rem; padding-top: 2rem; border-top: 2px solid #eee; color: #999; font-size: 0.875rem; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="verified">✓</div>
+        <h1>Certificate Verified</h1>
+        <p>This certificate is valid and has been issued by CleanIndex.</p>
+        
+        <div class="cert-number">' . esc_html($cert_number) . '</div>
+        
+        <div class="grade">' . esc_html($grade) . '</div>
+        
+        <div class="company">' . esc_html($registration['company_name']) . '</div>
+        
+        <div class="info">Industry: ' . esc_html($registration['industry']) . '</div>
+        <div class="info">Location: ' . esc_html($registration['country']) . '</div>
+        
+        <div class="footer">
+            <p>This certificate confirms successful completion of CSRD/ESRS compliant ESG assessment.</p>
+            <p>© ' . date('Y') . ' CleanIndex. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+</html>';
+            exit;
+        }
+    }
+    
+    // Certificate not found
+    echo '<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Certificate Not Found - CleanIndex</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; display: flex; align-items: center; justify-content: center; margin: 0; padding: 20px; }
+        .container { background: white; border-radius: 20px; padding: 3rem; max-width: 600px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); text-align: center; }
+        .error { color: #f44336; font-size: 4rem; margin-bottom: 1rem; }
+        h1 { color: #333; margin-bottom: 0.5rem; }
+        p { color: #666; line-height: 1.6; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="error">✗</div>
+        <h1>Certificate Not Found</h1>
+        <p>The certificate number <strong>' . esc_html($cert_number) . '</strong> could not be verified.</p>
+        <p>Please check the number and try again, or contact support for assistance.</p>
+    </div>
+</body>
+</html>';
+    exit;
 }
 
 /**
@@ -527,8 +753,81 @@ function cip_ajax_save_assessment() {
     }
 }
 
-// Upload file
-add_action('wp_ajax_cip_upload_file', 'cip_ajax_upload_file');
+// Process payment
+add_action('wp_ajax_cip_process_payment', 'cip_process_payment');
+
+function cip_process_payment() {
+    check_ajax_referer('cip_payment', 'nonce');
+    
+    if (!is_user_logged_in()) {
+        wp_send_json_error(['message' => 'Not authenticated']);
+        return;
+    }
+    
+    $payment_gateway = get_option('cip_payment_gateway', 'stripe');
+    $plan_index = intval($_POST['plan_index']);
+    $pricing_plans = get_option('cip_pricing_plans', []);
+    
+    if (!isset($pricing_plans[$plan_index])) {
+        wp_send_json_error(['message' => 'Invalid plan']);
+        return;
+    }
+    
+    $plan = $pricing_plans[$plan_index];
+    
+    if ($payment_gateway === 'stripe' && class_exists('CIP_Payment_Handler')) {
+        CIP_Payment_Handler::process_stripe_payment($plan, $_POST['payment_method_id']);
+    } else {
+        wp_send_json_error(['message' => 'Payment gateway not configured']);
+    }
+}
+
+// Generate certificate (manual)
+add_action('wp_ajax_cip_generate_certificate_manual', 'cip_generate_certificate_manual');
+
+function cip_generate_certificate_manual() {
+    check_ajax_referer('cip_admin_action', 'nonce');
+    
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error('Permission denied');
+        return;
+    }
+    
+    $user_id = intval($_POST['user_id']);
+    $grade = sanitize_text_field($_POST['grade']);
+    
+    if ($grade === 'auto' && class_exists('CIP_PDF_Generator')) {
+        // Get assessment data for automatic grading
+        global $wpdb;
+        $table_assessments = $wpdb->prefix . 'company_assessments';
+        $assessment = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM $table_assessments WHERE user_id = %d",
+            $user_id
+        ), ARRAY_A);
+        
+        if ($assessment) {
+            $assessment_data = json_decode($assessment['assessment_json'], true);
+            $grade = CIP_PDF_Generator::calculate_grade($assessment_data);
+        } else {
+            $grade = 'ESG';
+        }
+    }
+    
+    if (class_exists('CIP_PDF_Generator')) {
+        $result = CIP_PDF_Generator::generate_certificate_pdf($user_id, $grade);
+        
+        if ($result['success']) {
+            wp_send_json_success([
+                'message' => 'Certificate generated successfully',
+                'url' => $result['url']
+            ]);
+        } else {
+            wp_send_json_error('Failed to generate certificate');
+        }
+    } else {
+        wp_send_json_error('PDF Generator not available');
+    }
+}
 
 // Manager action
 add_action('wp_ajax_cip_manager_action', 'cip_ajax_manager_action');
@@ -558,6 +857,59 @@ function cip_ajax_admin_action() {
     
     // Handle admin actions
     wp_send_json_success();
+}
+
+/**
+ * ========================================
+ * SAVE SETTINGS
+ * ========================================
+ */
+add_action('admin_init', 'cip_save_settings_enhanced');
+
+function cip_save_settings_enhanced() {
+    if (!isset($_POST['cip_settings_submit'])) return;
+    
+    check_admin_referer('cip_settings_action', 'cip_settings_nonce');
+    
+    // Save general settings
+    update_option('cip_enable_registration', isset($_POST['enable_registration']) ? '1' : '0');
+    update_option('cip_admin_email', sanitize_email($_POST['admin_email']));
+    update_option('cip_company_name', sanitize_text_field($_POST['company_name']));
+    
+    // Save pricing plans
+    if (isset($_POST['pricing_plans'])) {
+        $pricing_plans = [];
+        foreach ($_POST['pricing_plans'] as $plan) {
+            $pricing_plans[] = [
+                'name' => sanitize_text_field($plan['name']),
+                'price' => sanitize_text_field($plan['price']),
+                'currency' => sanitize_text_field($plan['currency']),
+                'features' => sanitize_textarea_field($plan['features']),
+                'popular' => !empty($plan['popular'])
+            ];
+        }
+        update_option('cip_pricing_plans', $pricing_plans);
+    }
+    
+    // Save certificate settings
+    if (isset($_POST['cert_grading_mode'])) {
+        update_option('cip_cert_grading_mode', sanitize_text_field($_POST['cert_grading_mode']));
+        update_option('cip_cert_grade_esg3', intval($_POST['cert_grade_esg3']));
+        update_option('cip_cert_grade_esg2', intval($_POST['cert_grade_esg2']));
+        update_option('cip_cert_grade_esg1', intval($_POST['cert_grade_esg1']));
+        update_option('cip_cert_validity_years', intval($_POST['cert_validity_years']));
+    }
+    
+    // Save payment gateway settings
+    if (isset($_POST['payment_gateway'])) {
+        update_option('cip_payment_gateway', sanitize_text_field($_POST['payment_gateway']));
+        update_option('cip_stripe_publishable_key', sanitize_text_field($_POST['stripe_publishable_key']));
+        update_option('cip_stripe_secret_key', sanitize_text_field($_POST['stripe_secret_key']));
+        update_option('cip_paypal_client_id', sanitize_text_field($_POST['paypal_client_id']));
+        update_option('cip_paypal_secret', sanitize_text_field($_POST['paypal_secret']));
+        update_option('cip_paypal_sandbox', !empty($_POST['paypal_sandbox']));
+        update_option('cip_payment_currency', sanitize_text_field($_POST['payment_currency']));
+    }
 }
 
 /**
@@ -628,25 +980,13 @@ function cip_admin_settings_page() {
     // Handle form submission
     if (isset($_POST['cip_settings_submit'])) {
         check_admin_referer('cip_settings_action', 'cip_settings_nonce');
-        
-        // Save settings
-        update_option('cip_enable_registration', isset($_POST['enable_registration']) ? '1' : '0');
-        update_option('cip_enable_auto_approval', isset($_POST['enable_auto_approval']) ? '1' : '0');
-        update_option('cip_admin_email', sanitize_email($_POST['admin_email']));
-        update_option('cip_company_name', sanitize_text_field($_POST['company_name']));
-        update_option('cip_max_file_size', intval($_POST['max_file_size']));
-        update_option('cip_allowed_file_types', sanitize_text_field($_POST['allowed_file_types']));
-        
         echo '<div class="notice notice-success is-dismissible"><p><strong>' . __('Settings saved successfully!', 'cleanindex-portal') . '</strong></p></div>';
     }
     
     // Get current settings
     $enable_registration = get_option('cip_enable_registration', '1');
-    $enable_auto_approval = get_option('cip_enable_auto_approval', '0');
     $admin_email = get_option('cip_admin_email', get_option('admin_email'));
     $company_name = get_option('cip_company_name', 'CleanIndex');
-    $max_file_size = get_option('cip_max_file_size', 10);
-    $allowed_file_types = get_option('cip_allowed_file_types', 'pdf,doc,docx');
     
     // Check if recently activated
     $activated = isset($_GET['activated']) ? true : false;
@@ -728,12 +1068,16 @@ function cip_admin_system_page() {
         'includes/email.php',
         'includes/upload-handler.php',
         'includes/helpers.php',
+        'includes/pdf-generator.php',
         'pages/register.php',
         'pages/login.php',
         'pages/user-dashboard.php',
         'pages/assessment.php',
         'pages/manager-dashboard.php',
         'pages/admin-dashboard.php',
+        'pages/pricing.php',
+        'pages/checkout.php',
+        'pages/certificate-view.php',
         'css/style.css',
         'js/script.js'
     ];
@@ -798,11 +1142,21 @@ if (!function_exists('cip_uninstall')) {
             
             // Delete options
             delete_option('cip_enable_registration');
-            delete_option('cip_enable_auto_approval');
             delete_option('cip_admin_email');
             delete_option('cip_company_name');
-            delete_option('cip_max_file_size');
-            delete_option('cip_allowed_file_types');
+            delete_option('cip_pricing_plans');
+            delete_option('cip_cert_grading_mode');
+            delete_option('cip_cert_grade_esg3');
+            delete_option('cip_cert_grade_esg2');
+            delete_option('cip_cert_grade_esg1');
+            delete_option('cip_cert_validity_years');
+            delete_option('cip_payment_gateway');
+            delete_option('cip_stripe_publishable_key');
+            delete_option('cip_stripe_secret_key');
+            delete_option('cip_paypal_client_id');
+            delete_option('cip_paypal_secret');
+            delete_option('cip_paypal_sandbox');
+            delete_option('cip_payment_currency');
             delete_option('cip_remove_data_on_uninstall');
         }
     }
