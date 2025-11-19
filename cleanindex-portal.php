@@ -44,7 +44,8 @@ $required_files = [
     'includes/email.php',
     'includes/upload-handler.php',
     'includes/helpers.php',
-    'includes/pdf-generator.php'
+    'includes/pdf-generator.php',
+    'includes/payment-handler.php'
 ];
 
 $missing_files = [];
@@ -1067,6 +1068,7 @@ function cip_admin_system_page() {
         'includes/auth.php',
         'includes/email.php',
         'includes/upload-handler.php',
+        'includes/payment-handler.php',
         'includes/helpers.php',
         'includes/pdf-generator.php',
         'pages/register.php',
