@@ -12,11 +12,10 @@
  * - $activated
  * - $stats
  */
-/**
- * ============================================
- * FILE 4: settings-page.php (ENHANCED WITH PRICING)
- * ============================================
- */
+
+if (!defined('ABSPATH')) exit;
+
+?>
 
 <div class="wrap">
     <h1>
@@ -34,7 +33,6 @@
         <a href="#general" class="nav-tab nav-tab-active" onclick="switchTab(event, 'general')">⚙️ General</a>
         <a href="#pricing" class="nav-tab" onclick="switchTab(event, 'pricing')">💰 Pricing Plans</a>
         <a href="#certificates" class="nav-tab" onclick="switchTab(event, 'certificates')">🏆 Certificates</a>
-        <a href="#payment" class="nav-tab" onclick="switchTab(event, 'payment')">💳 Payment Gateway</a>
     </h2>
     
     <form method="post" action="">
@@ -62,6 +60,20 @@
                             </label>
                         </td>
                     </tr>
+                    <tr>
+                        <th>Max File Size (MB)</th>
+                        <td>
+                            <input type="number" name="max_file_size" value="<?php echo esc_attr($max_file_size); ?>" min="1" max="100" class="small-text">
+                            <p class="description">Maximum file size for uploads</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>Allowed File Types</th>
+                        <td>
+                            <input type="text" name="allowed_file_types" value="<?php echo esc_attr($allowed_file_types); ?>" class="regular-text">
+                            <p class="description">Comma-separated list (e.g., pdf,doc,docx)</p>
+                        </td>
+                    </tr>
                 </table>
             </div>
         </div>
@@ -70,31 +82,34 @@
         <div id="tab-pricing" class="tab-content" style="display: none;">
             <div style="background: #fff; padding: 20px; margin: 20px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
                 <h2>💰 Pricing Plans Configuration</h2>
-                <p>Configure your subscription pricing tiers. Plans will appear on the pricing page.</p>
+                <p>Configure your subscription pricing tiers. Plans will be created as WooCommerce products.</p>
                 
                 <div id="pricing-plans-container">
                     <?php
                     $pricing_plans = get_option('cip_pricing_plans', []);
                     if (empty($pricing_plans)) {
                         $pricing_plans = [
-                            ['name' => 'Basic', 'price' => '499', 'currency' => 'EUR', 'features' => 'ESG Assessment
-Basic Certificate
-Email Support
-1 Year Validity', 'popular' => false],
-                            ['name' => 'Professional', 'price' => '999', 'currency' => 'EUR', 'features' => 'ESG Assessment
-Premium Certificate
-Priority Support
-2 Years Validity
-Benchmarking Report
-Directory Listing', 'popular' => true],
-                            ['name' => 'Enterprise', 'price' => '1999', 'currency' => 'EUR', 'features' => 'ESG Assessment
-Premium Certificate
-Dedicated Support
-3 Years Validity
-Detailed Analytics
-Featured Directory Listing
-Custom Reporting
-API Access', 'popular' => false]
+                            [
+                                'name' => 'Basic', 
+                                'price' => '499', 
+                                'currency' => 'EUR', 
+                                'features' => "ESG Assessment\nBasic Certificate\nEmail Support\n1 Year Validity", 
+                                'popular' => false
+                            ],
+                            [
+                                'name' => 'Professional', 
+                                'price' => '999', 
+                                'currency' => 'EUR', 
+                                'features' => "ESG Assessment\nPremium Certificate\nPriority Support\n2 Years Validity\nBenchmarking Report\nDirectory Listing", 
+                                'popular' => true
+                            ],
+                            [
+                                'name' => 'Enterprise', 
+                                'price' => '1999', 
+                                'currency' => 'EUR', 
+                                'features' => "ESG Assessment\nPremium Certificate\nDedicated Support\n3 Years Validity\nDetailed Analytics\nFeatured Directory Listing\nCustom Reporting\nAPI Access", 
+                                'popular' => false
+                            ]
                         ];
                     }
                     
@@ -140,6 +155,10 @@ API Access', 'popular' => false]
                 </div>
                 
                 <button type="button" onclick="addPricingPlan()" class="button button-secondary">➕ Add Another Plan</button>
+                
+                <div style="margin-top: 20px; padding: 15px; background: #fff3cd; border-left: 4px solid #ffc107; border-radius: 4px;">
+                    <strong>ℹ️ Note:</strong> After saving, WooCommerce products will be automatically created/updated for each plan.
+                </div>
             </div>
         </div>
         
@@ -196,68 +215,6 @@ API Access', 'popular' => false]
             </div>
         </div>
         
-        <!-- Payment Gateway Tab -->
-        <div id="tab-payment" class="tab-content" style="display: none;">
-            <div style="background: #fff; padding: 20px; margin: 20px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-                <h2>💳 Payment Gateway Configuration</h2>
-                
-                <table class="form-table">
-                    <tr>
-                        <th>Payment Gateway</th>
-                        <td>
-                            <select name="payment_gateway" id="payment_gateway" onchange="toggleGatewaySettings()">
-                                <option value="stripe" <?php selected(get_option('cip_payment_gateway', 'stripe'), 'stripe'); ?>>Stripe</option>
-                                <option value="paypal" <?php selected(get_option('cip_payment_gateway'), 'paypal'); ?>>PayPal</option>
-                                <option value="mollie" <?php selected(get_option('cip_payment_gateway'), 'mollie'); ?>>Mollie</option>
-                            </select>
-                        </td>
-                    </tr>
-                    
-                    <tr id="stripe-settings" style="<?php echo get_option('cip_payment_gateway', 'stripe') !== 'stripe' ? 'display:none;' : ''; ?>">
-                        <th>Stripe Configuration</th>
-                        <td>
-                            <p><strong>Publishable Key</strong></p>
-                            <input type="text" name="stripe_publishable_key" value="<?php echo esc_attr(get_option('cip_stripe_publishable_key')); ?>" class="regular-text" placeholder="pk_live_...">
-                            
-                            <p style="margin-top: 15px;"><strong>Secret Key</strong></p>
-                            <input type="password" name="stripe_secret_key" value="<?php echo esc_attr(get_option('cip_stripe_secret_key')); ?>" class="regular-text" placeholder="sk_live_...">
-                            
-                            <p class="description">Get your keys from <a href="https://dashboard.stripe.com/apikeys" target="_blank">Stripe Dashboard</a></p>
-                        </td>
-                    </tr>
-                    
-                    <tr id="paypal-settings" style="<?php echo get_option('cip_payment_gateway') !== 'paypal' ? 'display:none;' : ''; ?>">
-                        <th>PayPal Configuration</th>
-                        <td>
-                            <p><strong>Client ID</strong></p>
-                            <input type="text" name="paypal_client_id" value="<?php echo esc_attr(get_option('cip_paypal_client_id')); ?>" class="regular-text">
-                            
-                            <p style="margin-top: 15px;"><strong>Secret</strong></p>
-                            <input type="password" name="paypal_secret" value="<?php echo esc_attr(get_option('cip_paypal_secret')); ?>" class="regular-text">
-                            
-                            <p style="margin-top: 15px;">
-                                <label>
-                                    <input type="checkbox" name="paypal_sandbox" value="1" <?php checked(get_option('cip_paypal_sandbox'), '1'); ?>>
-                                    Use Sandbox Mode (for testing)
-                                </label>
-                            </p>
-                        </td>
-                    </tr>
-                    
-                    <tr>
-                        <th>Currency</th>
-                        <td>
-                            <select name="payment_currency">
-                                <option value="EUR" <?php selected(get_option('cip_payment_currency', 'EUR'), 'EUR'); ?>>EUR (€)</option>
-                                <option value="USD" <?php selected(get_option('cip_payment_currency'), 'USD'); ?>>USD ($)</option>
-                                <option value="GBP" <?php selected(get_option('cip_payment_currency'), 'GBP'); ?>>GBP (£)</option>
-                            </select>
-                        </td>
-                    </tr>
-                </table>
-            </div>
-        </div>
-        
         <p class="submit">
             <button type="submit" name="cip_settings_submit" class="button button-primary button-large">
                 💾 Save All Settings
@@ -283,12 +240,6 @@ function switchTab(e, tabName) {
     // Show selected tab
     document.getElementById('tab-' + tabName).style.display = 'block';
     e.target.classList.add('nav-tab-active');
-}
-
-function toggleGatewaySettings() {
-    const gateway = document.getElementById('payment_gateway').value;
-    document.getElementById('stripe-settings').style.display = gateway === 'stripe' ? 'table-row' : 'none';
-    document.getElementById('paypal-settings').style.display = gateway === 'paypal' ? 'table-row' : 'none';
 }
 
 let planCounter = <?php echo count($pricing_plans); ?>;
