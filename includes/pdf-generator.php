@@ -1,13 +1,41 @@
 <?php
 /**
- * ============================================
- * FILE 3: pdf-generator.php (NEW)
- * ============================================
+ * CleanIndex Portal - PDF Generator (Without External Dependencies)
+ * Uses WordPress native functions and FPDF (lightweight alternative)
  */
 
 if (!defined('ABSPATH')) exit;
 
-require_once CIP_PLUGIN_DIR . 'vendor/autoload.php'; // For TCPDF or similar
+// Download FPDF library if not exists
+if (!class_exists('FPDF')) {
+    $fpdf_path = CIP_PLUGIN_DIR . 'includes/fpdf/fpdf.php';
+    if (!file_exists($fpdf_path)) {
+        // Download FPDF
+        $fpdf_url = 'http://www.fpdf.org/en/download/fpdf185.zip';
+        $zip_file = CIP_PLUGIN_DIR . 'includes/fpdf.zip';
+        
+        if (!file_exists(CIP_PLUGIN_DIR . 'includes/fpdf/')) {
+            @mkdir(CIP_PLUGIN_DIR . 'includes/fpdf/', 0755, true);
+        }
+        
+        // Try to download and extract
+        $fpdf_content = @file_get_contents($fpdf_url);
+        if ($fpdf_content) {
+            file_put_contents($zip_file, $fpdf_content);
+            
+            $zip = new ZipArchive();
+            if ($zip->open($zip_file) === TRUE) {
+                $zip->extractTo(CIP_PLUGIN_DIR . 'includes/fpdf/');
+                $zip->close();
+                unlink($zip_file);
+            }
+        }
+    }
+    
+    if (file_exists($fpdf_path)) {
+        require_once $fpdf_path;
+    }
+}
 
 class CIP_PDF_Generator {
     
@@ -31,37 +59,25 @@ class CIP_PDF_Generator {
         ), ARRAY_A);
         
         if (!$assessment || !$registration) {
-            return false;
+            return ['success' => false, 'message' => 'Data not found'];
         }
         
         $assessment_data = json_decode($assessment['assessment_json'], true);
         
+        if (!class_exists('FPDF')) {
+            return ['success' => false, 'message' => 'PDF library not available'];
+        }
+        
         // Initialize PDF
-        $pdf = new TCPDF(PDF_PAGE_ORIENTATION, PDF_UNIT, PDF_PAGE_FORMAT, true, 'UTF-8', false);
-        
-        // Set document information
-        $pdf->SetCreator('CleanIndex Portal');
-        $pdf->SetAuthor($registration['company_name']);
-        $pdf->SetTitle('ESG Assessment Submission');
-        $pdf->SetSubject('CSRD/ESRS Assessment');
-        
-        // Remove default header/footer
-        $pdf->setPrintHeader(false);
-        $pdf->setPrintFooter(false);
-        
-        // Set margins
-        $pdf->SetMargins(15, 15, 15);
-        $pdf->SetAutoPageBreak(TRUE, 15);
-        
-        // Add page
+        $pdf = new FPDF();
         $pdf->AddPage();
         
         // Header
-        $pdf->SetFont('helvetica', 'B', 24);
+        $pdf->SetFont('Arial', 'B', 24);
         $pdf->SetTextColor(76, 175, 80);
         $pdf->Cell(0, 15, 'ESG Assessment Submission', 0, 1, 'C');
         
-        $pdf->SetFont('helvetica', '', 12);
+        $pdf->SetFont('Arial', '', 12);
         $pdf->SetTextColor(0, 0, 0);
         $pdf->Cell(0, 7, $registration['company_name'], 0, 1, 'C');
         $pdf->Cell(0, 7, 'Submitted: ' . date('F j, Y', strtotime($assessment['submitted_at'])), 0, 1, 'C');
@@ -72,26 +88,26 @@ class CIP_PDF_Generator {
         $questions = self::get_assessment_questions();
         
         foreach ($questions as $step => $step_data) {
-            $pdf->SetFont('helvetica', 'B', 16);
+            $pdf->SetFont('Arial', 'B', 14);
             $pdf->SetFillColor(76, 175, 80);
             $pdf->SetTextColor(255, 255, 255);
             $pdf->Cell(0, 10, 'Step ' . $step . ': ' . $step_data['title'], 0, 1, 'L', true);
-            $pdf->Ln(5);
+            $pdf->Ln(3);
             
             foreach ($step_data['questions'] as $q_id => $question) {
-                $pdf->SetFont('helvetica', 'B', 11);
+                $pdf->SetFont('Arial', 'B', 10);
                 $pdf->SetTextColor(0, 0, 0);
-                $pdf->MultiCell(0, 6, $question, 0, 'L');
+                $pdf->MultiCell(0, 5, $question);
                 
-                $pdf->SetFont('helvetica', '', 10);
+                $pdf->SetFont('Arial', '', 9);
                 $pdf->SetTextColor(60, 60, 60);
                 $answer = isset($assessment_data[$q_id]) ? $assessment_data[$q_id] : 'Not answered';
                 $pdf->SetFillColor(245, 245, 245);
-                $pdf->MultiCell(0, 6, $answer, 0, 'L', true);
-                $pdf->Ln(5);
+                $pdf->MultiCell(0, 5, $answer, 0, 'L', true);
+                $pdf->Ln(3);
             }
             
-            $pdf->Ln(5);
+            $pdf->Ln(3);
         }
         
         // Save PDF
@@ -103,7 +119,7 @@ class CIP_PDF_Generator {
         $filename = 'assessment_' . $user_id . '_' . time() . '.pdf';
         $filepath = $upload_dir . $filename;
         
-        $pdf->Output($filepath, 'F');
+        $pdf->Output('F', $filepath);
         
         return [
             'success' => true,
@@ -126,22 +142,18 @@ class CIP_PDF_Generator {
         ), ARRAY_A);
         
         if (!$registration) {
-            return false;
+            return ['success' => false, 'message' => 'Registration not found'];
+        }
+        
+        if (!class_exists('FPDF')) {
+            return ['success' => false, 'message' => 'PDF library not available'];
         }
         
         // Initialize PDF with landscape orientation
-        $pdf = new TCPDF('L', PDF_UNIT, 'A4', true, 'UTF-8', false);
-        
-        $pdf->SetCreator('CleanIndex Portal');
-        $pdf->SetTitle('ESG Certificate');
-        $pdf->setPrintHeader(false);
-        $pdf->setPrintFooter(false);
-        $pdf->SetMargins(0, 0, 0);
-        $pdf->SetAutoPageBreak(FALSE);
-        
+        $pdf = new FPDF('L', 'mm', 'A4');
         $pdf->AddPage();
         
-        // Background gradient
+        // Background
         $pdf->SetFillColor(250, 250, 250);
         $pdf->Rect(0, 0, 297, 210, 'F');
         
@@ -150,40 +162,34 @@ class CIP_PDF_Generator {
         $pdf->SetDrawColor(76, 175, 80);
         $pdf->Rect(10, 10, 277, 190, 'D');
         
-        // Logo/Icon
-        $pdf->SetFont('helvetica', 'B', 48);
-        $pdf->SetTextColor(76, 175, 80);
-        $pdf->SetXY(0, 30);
-        $pdf->Cell(0, 20, '🌱', 0, 1, 'C');
-        
         // Title
-        $pdf->SetFont('helvetica', 'B', 32);
+        $pdf->SetFont('Arial', 'B', 32);
         $pdf->SetTextColor(0, 0, 0);
-        $pdf->SetXY(0, 60);
+        $pdf->SetXY(0, 50);
         $pdf->Cell(0, 15, 'ESG CERTIFICATE', 0, 1, 'C');
         
         // Grade
-        $pdf->SetFont('helvetica', 'B', 48);
+        $pdf->SetFont('Arial', 'B', 48);
         $pdf->SetTextColor(76, 175, 80);
-        $pdf->SetXY(0, 85);
+        $pdf->SetXY(0, 75);
         $pdf->Cell(0, 20, $grade, 0, 1, 'C');
         
         // Company name
-        $pdf->SetFont('helvetica', 'B', 24);
+        $pdf->SetFont('Arial', 'B', 20);
         $pdf->SetTextColor(0, 0, 0);
-        $pdf->SetXY(0, 115);
+        $pdf->SetXY(0, 105);
         $pdf->Cell(0, 10, strtoupper($registration['company_name']), 0, 1, 'C');
         
         // Description
-        $pdf->SetFont('helvetica', '', 12);
+        $pdf->SetFont('Arial', '', 11);
         $pdf->SetTextColor(100, 100, 100);
-        $pdf->SetXY(40, 135);
-        $pdf->MultiCell(217, 6, 'This certificate confirms that the above organization has successfully completed the CSRD/ESRS compliant ESG assessment and meets the standards for ' . $grade . ' certification.', 0, 'C');
+        $pdf->SetXY(30, 125);
+        $pdf->MultiCell(237, 6, 'This certificate confirms that the above organization has successfully completed the CSRD/ESRS compliant ESG assessment and meets the standards for ' . $grade . ' certification.', 0, 'C');
         
         // Date and Certificate Number
         $cert_number = 'CI-' . strtoupper(substr(md5($user_id . time()), 0, 10));
-        $pdf->SetFont('helvetica', '', 10);
-        $pdf->SetXY(0, 165);
+        $pdf->SetFont('Arial', '', 10);
+        $pdf->SetXY(0, 155);
         $pdf->Cell(0, 5, 'Certificate Number: ' . $cert_number, 0, 1, 'C');
         $pdf->Cell(0, 5, 'Issue Date: ' . date('F j, Y'), 0, 1, 'C');
         $pdf->Cell(0, 5, 'Valid Until: ' . date('F j, Y', strtotime('+1 year')), 0, 1, 'C');
@@ -197,13 +203,16 @@ class CIP_PDF_Generator {
         $filename = 'certificate_' . $user_id . '_' . time() . '.pdf';
         $filepath = $upload_dir . $filename;
         
-        $pdf->Output($filepath, 'F');
+        $pdf->Output('F', $filepath);
         
-        // Store certificate info
-        update_user_meta(get_current_user_id(), 'cip_certificate_generated', true);
-        update_user_meta(get_current_user_id(), 'cip_certificate_url', CIP_UPLOAD_URL . 'certificates/' . $filename);
-        update_user_meta(get_current_user_id(), 'cip_certificate_grade', $grade);
-        update_user_meta(get_current_user_id(), 'cip_certificate_number', $cert_number);
+        // Get WordPress user from registration email
+        $wp_user = get_user_by('email', $registration['email']);
+        if ($wp_user) {
+            update_user_meta($wp_user->ID, 'cip_certificate_generated', true);
+            update_user_meta($wp_user->ID, 'cip_certificate_url', CIP_UPLOAD_URL . 'certificates/' . $filename);
+            update_user_meta($wp_user->ID, 'cip_certificate_grade', $grade);
+            update_user_meta($wp_user->ID, 'cip_certificate_number', $cert_number);
+        }
         
         return [
             'success' => true,
@@ -295,11 +304,51 @@ class CIP_PDF_Generator {
             }
         }
         
+        if ($max_score == 0) {
+            return 'ESG';
+        }
+        
         $percentage = ($total_score / $max_score) * 100;
         
-        if ($percentage >= 95) return 'ESG+++';
-        if ($percentage >= 85) return 'ESG++';
-        if ($percentage >= 75) return 'ESG+';
+        // Get thresholds from settings
+        $threshold_3 = get_option('cip_cert_grade_esg3', 95);
+        $threshold_2 = get_option('cip_cert_grade_esg2', 85);
+        $threshold_1 = get_option('cip_cert_grade_esg1', 75);
+        
+        if ($percentage >= $threshold_3) return 'ESG+++';
+        if ($percentage >= $threshold_2) return 'ESG++';
+        if ($percentage >= $threshold_1) return 'ESG+';
         return 'ESG';
+    }
+}
+
+// Auto-download FPDF on plugin activation
+register_activation_hook(CIP_PLUGIN_FILE, 'cip_download_fpdf');
+
+function cip_download_fpdf() {
+    if (!class_exists('FPDF')) {
+        $fpdf_dir = CIP_PLUGIN_DIR . 'includes/fpdf/';
+        if (!file_exists($fpdf_dir)) {
+            wp_mkdir_p($fpdf_dir);
+        }
+        
+        // Download FPDF
+        $fpdf_url = 'http://www.fpdf.org/en/download/fpdf185.zip';
+        $zip_file = $fpdf_dir . 'fpdf.zip';
+        
+        $response = wp_remote_get($fpdf_url, ['timeout' => 30]);
+        
+        if (!is_wp_error($response)) {
+            $zip_content = wp_remote_retrieve_body($response);
+            file_put_contents($zip_file, $zip_content);
+            
+            // Extract
+            $zip = new ZipArchive();
+            if ($zip->open($zip_file) === TRUE) {
+                $zip->extractTo($fpdf_dir);
+                $zip->close();
+                unlink($zip_file);
+            }
+        }
     }
 }
