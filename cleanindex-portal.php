@@ -1199,6 +1199,198 @@ if (!function_exists('cip_uninstall')) {
             delete_option('cip_remove_data_on_uninstall');
         }
     }
+/**
+ * Add this to your functions.php or custom plugin
+ * Complete WooCommerce integration with debugging
+ */
+
+// 1. CREATE PRODUCTS ON ACTIVATION
+add_action('admin_init', 'cip_setup_woocommerce_products');
+
+function cip_setup_woocommerce_products() {
+    // Check if already initialized
+    if (get_option('cip_products_initialized')) {
+        return;
+    }
+    
+    // Verify WooCommerce is active
+    if (!class_exists('WC_Product_Simple')) {
+        error_log('CIP: WooCommerce not active');
+        return;
+    }
+    
+    $pricing_plans = get_option('cip_pricing_plans', []);
+    
+    if (empty($pricing_plans)) {
+        error_log('CIP: No pricing plans found');
+        return;
+    }
+    
+    foreach ($pricing_plans as $index => $plan) {
+        // Check if product already exists
+        $existing_product_id = get_option('cip_plan_product_' . $index);
+        
+        if ($existing_product_id && wc_get_product($existing_product_id)) {
+            error_log('CIP: Product ' . $index . ' already exists: ' . $existing_product_id);
+            continue;
+        }
+        
+        // Create new WooCommerce product
+        $product = new WC_Product_Simple();
+        $product->set_name($plan['name'] . ' - Annual ESG Certification');
+        $product->set_regular_price($plan['price']);
+        $product->set_description('ESG Certification - ' . $plan['name'] . ' Plan');
+        $product->set_short_description($plan['name'] . ' ESG Certification Plan');
+        $product->set_status('publish');
+        $product->set_virtual(true);
+        $product->set_downloadable(false);
+        $product->set_catalog_visibility('visible');
+        $product->set_featured(false);
+        
+        $product_id = $product->save();
+        
+        if (!$product_id || is_wp_error($product_id)) {
+            error_log('CIP: Failed to create product ' . $index . ': ' . print_r($product_id, true));
+            continue;
+        }
+        
+        // Store product ID
+        update_option('cip_plan_product_' . $index, $product_id);
+        error_log('CIP: Product created successfully - Index: ' . $index . ', Product ID: ' . $product_id);
+    }
+    
+    update_option('cip_products_initialized', true);
+    error_log('CIP: Setup complete');
+}
+
+// 2. AJAX HANDLER TO ADD TO CART
+add_action('wp_ajax_cip_add_to_cart', 'cip_handle_add_to_cart');
+add_action('wp_ajax_nopriv_cip_add_to_cart', 'cip_handle_add_to_cart'); // Allow non-logged in users
+
+function cip_handle_add_to_cart() {
+    // Verify nonce
+    check_ajax_referer('cip_checkout', 'nonce');
+    
+    $plan_index = intval($_POST['plan_index']);
+    error_log('CIP AJAX: Plan index: ' . $plan_index);
+    
+    // Get product ID from options
+    $product_id = get_option('cip_plan_product_' . $plan_index);
+    error_log('CIP AJAX: Product ID from option: ' . $product_id);
+    
+    // Verify product exists
+    $product = wc_get_product($product_id);
+    
+    if (!$product) {
+        error_log('CIP AJAX: Product not found - ID: ' . $product_id);
+        wp_send_json_error([
+            'message' => 'Product not found. Product ID: ' . $product_id,
+            'product_id' => $product_id,
+            'plan_index' => $plan_index
+        ]);
+        return;
+    }
+    
+    error_log('CIP AJAX: Product found: ' . $product->get_name());
+    
+    // Add to cart
+    if (WC()->cart->add_to_cart($product_id, 1)) {
+        error_log('CIP AJAX: Added to cart successfully');
+        wp_send_json_success([
+            'checkout_url' => wc_get_checkout_url(),
+            'product_id' => $product_id,
+            'product_name' => $product->get_name()
+        ]);
+    } else {
+        error_log('CIP AJAX: Failed to add to cart');
+        wp_send_json_error([
+            'message' => 'Failed to add product to cart',
+            'product_id' => $product_id
+        ]);
+    }
+}
+
+// 3. ADMIN PAGE TO CHECK STATUS
+add_action('admin_menu', 'cip_debug_menu');
+
+function cip_debug_menu() {
+    add_submenu_page(
+        'options-general.php',
+        'CleanIndex Debug',
+        'CleanIndex Debug',
+        'manage_options',
+        'cip-debug',
+        'cip_debug_page'
+    );
+}
+
+function cip_debug_page() {
+    if (!current_user_can('manage_options')) {
+        return;
+    }
+    
+    // Reset if requested
+    if (isset($_POST['cip_reset_nonce']) && wp_verify_nonce($_POST['cip_reset_nonce'], 'cip_reset')) {
+        delete_option('cip_products_initialized');
+        delete_option('cip_plan_product_0');
+        delete_option('cip_plan_product_1');
+        delete_option('cip_plan_product_2');
+        echo '<div class="notice notice-success"><p>Reset complete. Please refresh.</p></div>';
+    }
+    
+    $pricing_plans = get_option('cip_pricing_plans', []);
+    
+    ?>
+    <div class="wrap">
+        <h1>CleanIndex Debug</h1>
+        
+        <h2>Status</h2>
+        <table class="widefat">
+            <thead>
+                <tr>
+                    <th>Plan</th>
+                    <th>Index</th>
+                    <th>Product ID</th>
+                    <th>Product Exists</th>
+                    <th>Product Name</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($pricing_plans as $index => $plan): ?>
+                    <?php 
+                    $product_id = get_option('cip_plan_product_' . $index);
+                    $product = wc_get_product($product_id);
+                    ?>
+                    <tr>
+                        <td><strong><?php echo esc_html($plan['name']); ?></strong></td>
+                        <td><?php echo $index; ?></td>
+                        <td><?php echo $product_id ? $product_id : '❌ NOT SET'; ?></td>
+                        <td><?php echo $product ? '✅ YES' : '❌ NO'; ?></td>
+                        <td><?php echo $product ? esc_html($product->get_name()) : 'N/A'; ?></td>
+                    </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+        
+        <hr>
+        
+        <h2>Actions</h2>
+        <form method="post">
+            <?php wp_nonce_field('cip_reset', 'cip_reset_nonce'); ?>
+            <button type="submit" class="button button-danger">
+                Reset & Recreate Products
+            </button>
+        </form>
+        
+        <hr>
+        <h2>Debug Info</h2>
+        <p><strong>WooCommerce Active:</strong> <?php echo class_exists('WC_Product_Simple') ? '✅ YES' : '❌ NO'; ?></p>
+        <p><strong>Initialized:</strong> <?php echo get_option('cip_products_initialized') ? '✅ YES' : '❌ NO'; ?></p>
+        <p><strong>Check logs:</strong> <code>/wp-content/debug.log</code></p>
+    </div>
+    <?php
+}
+
 }
 
 
