@@ -85,6 +85,9 @@ register_activation_hook(__FILE__, 'cip_activate_plugin');
 
 function cip_activate_plugin() {
     global $wpdb;
+
+    // NEW: Create subscriptions table
+    cip_create_subscriptions_table();
     
     try {
         $charset_collate = $wpdb->get_charset_collate();
@@ -153,6 +156,38 @@ function cip_activate_plugin() {
         
         dbDelta($sql_assessments);
         error_log("CleanIndex Portal: Created assessments table");
+
+           // ADD THIS: Create subscriptions table
+        $subscriptions_table = $wpdb->prefix . 'cip_subscriptions';
+        
+        $sql_subscriptions = "CREATE TABLE IF NOT EXISTS $subscriptions_table (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT NOT NULL,
+            company_id INT NOT NULL,
+            plan_name VARCHAR(100) NOT NULL,
+            plan_price DECIMAL(10, 2) NOT NULL,
+            currency VARCHAR(3) DEFAULT 'EUR',
+            status ENUM('active', 'cancelled', 'expired', 'pending') DEFAULT 'pending',
+            payment_method VARCHAR(50),
+            transaction_id VARCHAR(255),
+            start_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+            end_date DATETIME,
+            next_billing_date DATETIME,
+            auto_renew TINYINT(1) DEFAULT 1,
+            notes TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX idx_user_id (user_id),
+            INDEX idx_status (status),
+            INDEX idx_end_date (end_date)
+        ) $charset_collate;";
+        
+        require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+        dbDelta($sql_subscriptions);
+
+        if (!get_option('cip_assessment_questions')) {
+            update_option('cip_assessment_questions', cip_get_default_questions());
+        }
         
         // Restore backed up data to registrations table
         if (!empty($backup_registrations)) {
@@ -303,6 +338,7 @@ function cip_deactivate_plugin() {
     // Flush rewrite rules
     flush_rewrite_rules();
     
+    
     // Clean up transients
     delete_transient('cip_activation_redirect');
     delete_transient('cip_flush_rewrite_rules_flag');
@@ -326,6 +362,46 @@ function cip_activation_redirect() {
         if (!isset($_GET['activate-multi'])) {
             wp_safe_redirect(admin_url('admin.php?page=cleanindex-portal&activated=true'));
             exit;
+        }
+    }
+}
+
+add_action('admin_init', 'cip_save_enhanced_settings');
+
+function cip_save_enhanced_settings() {
+    if (!isset($_POST['cip_settings_submit'])) {
+        return;
+    }
+    
+    if (!current_user_can('manage_options')) {
+        return;
+    }
+    
+    check_admin_referer('cip_settings_action', 'cip_settings_nonce');
+    
+    // Email template settings
+    $email_fields = [
+        'cip_email_from_name' => 'email_from_name',
+        'cip_email_from_address' => 'email_from_address',
+        'cip_email_approval_subject' => 'email_approval_subject',
+        'cip_email_approval_body' => 'email_approval_body',
+        'cip_email_rejection_subject' => 'email_rejection_subject',
+        'cip_email_rejection_body' => 'email_rejection_body',
+        'cip_email_info_request_subject' => 'email_info_request_subject',
+        'cip_email_info_request_body' => 'email_info_request_body',
+        'cip_email_assessment_subject' => 'email_assessment_subject',
+        'cip_email_assessment_body' => 'email_assessment_body',
+        'cip_email_certificate_subject' => 'email_certificate_subject',
+        'cip_email_certificate_body' => 'email_certificate_body',
+    ];
+    
+    foreach ($email_fields as $option_key => $post_key) {
+        if (isset($_POST[$post_key])) {
+            $value = strpos($post_key, '_body') !== false 
+                ? wp_kses_post($_POST[$post_key]) 
+                : sanitize_text_field($_POST[$post_key]);
+            
+            update_option($option_key, $value);
         }
     }
 }
@@ -1199,196 +1275,113 @@ if (!function_exists('cip_uninstall')) {
             delete_option('cip_remove_data_on_uninstall');
         }
     }
-/**
- * Add this to your functions.php or custom plugin
- * Complete WooCommerce integration with debugging
- */
-
-// 1. CREATE PRODUCTS ON ACTIVATION
-add_action('admin_init', 'cip_setup_woocommerce_products');
-
-function cip_setup_woocommerce_products() {
-    // Check if already initialized
-    if (get_option('cip_products_initialized')) {
-        return;
+function cip_send_custom_email($to, $type, $variables = []) {
+    $subject_option = 'cip_email_' . $type . '_subject';
+    $body_option = 'cip_email_' . $type . '_body';
+    
+    $subject = get_option($subject_option, 'Message from CleanIndex');
+    $body = get_option($body_option, 'Hello');
+    
+    // Replace variables
+    foreach ($variables as $key => $value) {
+        $body = str_replace('{{' . $key . '}}', $value, $body);
+        $subject = str_replace('{{' . $key . '}}', $value, $subject);
     }
     
-    // Verify WooCommerce is active
-    if (!class_exists('WC_Product_Simple')) {
-        error_log('CIP: WooCommerce not active');
-        return;
-    }
+    $from_name = get_option('cip_email_from_name', 'CleanIndex');
+    $from_email = get_option('cip_email_from_address', get_option('admin_email'));
     
-    $pricing_plans = get_option('cip_pricing_plans', []);
+    $headers = [
+        'From: ' . $from_name . ' <' . $from_email . '>',
+        'Content-Type: text/html; charset=UTF-8'
+    ];
     
-    if (empty($pricing_plans)) {
-        error_log('CIP: No pricing plans found');
-        return;
-    }
-    
-    foreach ($pricing_plans as $index => $plan) {
-        // Check if product already exists
-        $existing_product_id = get_option('cip_plan_product_' . $index);
-        
-        if ($existing_product_id && wc_get_product($existing_product_id)) {
-            error_log('CIP: Product ' . $index . ' already exists: ' . $existing_product_id);
-            continue;
-        }
-        
-        // Create new WooCommerce product
-        $product = new WC_Product_Simple();
-        $product->set_name($plan['name'] . ' - Annual ESG Certification');
-        $product->set_regular_price($plan['price']);
-        $product->set_description('ESG Certification - ' . $plan['name'] . ' Plan');
-        $product->set_short_description($plan['name'] . ' ESG Certification Plan');
-        $product->set_status('publish');
-        $product->set_virtual(true);
-        $product->set_downloadable(false);
-        $product->set_catalog_visibility('visible');
-        $product->set_featured(false);
-        
-        $product_id = $product->save();
-        
-        if (!$product_id || is_wp_error($product_id)) {
-            error_log('CIP: Failed to create product ' . $index . ': ' . print_r($product_id, true));
-            continue;
-        }
-        
-        // Store product ID
-        update_option('cip_plan_product_' . $index, $product_id);
-        error_log('CIP: Product created successfully - Index: ' . $index . ', Product ID: ' . $product_id);
-    }
-    
-    update_option('cip_products_initialized', true);
-    error_log('CIP: Setup complete');
+    return wp_mail($to, $subject, $body, $headers);
 }
 
-// 2. AJAX HANDLER TO ADD TO CART
-add_action('wp_ajax_cip_add_to_cart', 'cip_handle_add_to_cart');
-add_action('wp_ajax_nopriv_cip_add_to_cart', 'cip_handle_add_to_cart'); // Allow non-logged in users
+add_action('admin_menu', 'cip_admin_menu_enhanced');
 
-function cip_handle_add_to_cart() {
-    // Verify nonce
-    check_ajax_referer('cip_checkout', 'nonce');
-    
-    $plan_index = intval($_POST['plan_index']);
-    error_log('CIP AJAX: Plan index: ' . $plan_index);
-    
-    // Get product ID from options
-    $product_id = get_option('cip_plan_product_' . $plan_index);
-    error_log('CIP AJAX: Product ID from option: ' . $product_id);
-    
-    // Verify product exists
-    $product = wc_get_product($product_id);
-    
-    if (!$product) {
-        error_log('CIP AJAX: Product not found - ID: ' . $product_id);
-        wp_send_json_error([
-            'message' => 'Product not found. Product ID: ' . $product_id,
-            'product_id' => $product_id,
-            'plan_index' => $plan_index
-        ]);
-        return;
-    }
-    
-    error_log('CIP AJAX: Product found: ' . $product->get_name());
-    
-    // Add to cart
-    if (WC()->cart->add_to_cart($product_id, 1)) {
-        error_log('CIP AJAX: Added to cart successfully');
-        wp_send_json_success([
-            'checkout_url' => wc_get_checkout_url(),
-            'product_id' => $product_id,
-            'product_name' => $product->get_name()
-        ]);
-    } else {
-        error_log('CIP AJAX: Failed to add to cart');
-        wp_send_json_error([
-            'message' => 'Failed to add product to cart',
-            'product_id' => $product_id
-        ]);
-    }
-}
-
-// 3. ADMIN PAGE TO CHECK STATUS
-add_action('admin_menu', 'cip_debug_menu');
-
-function cip_debug_menu() {
-    add_submenu_page(
-        'options-general.php',
-        'CleanIndex Debug',
-        'CleanIndex Debug',
+function cip_admin_menu_enhanced() {
+    // Main menu page
+    add_menu_page(
+        __('CleanIndex Portal', 'cleanindex-portal'),
+        __('CleanIndex', 'cleanindex-portal'),
         'manage_options',
-        'cip-debug',
-        'cip_debug_page'
+        'cleanindex-portal',
+        'cip_admin_settings_page',
+        'dashicons-shield-alt',
+        30
+    );
+    
+    // Settings submenu
+    add_submenu_page(
+        'cleanindex-portal',
+        __('Settings', 'cleanindex-portal'),
+        __('Settings', 'cleanindex-portal'),
+        'manage_options',
+        'cleanindex-portal',
+        'cip_admin_settings_page'
+    );
+    
+    // Questions Manager - NEW
+    add_submenu_page(
+        'cleanindex-portal',
+        __('Assessment Questions', 'cleanindex-portal'),
+        __('Questions', 'cleanindex-portal'),
+        'manage_options',
+        'cleanindex-questions',
+        function() {
+            if (!current_user_can('manage_options')) {
+                wp_die('Access denied');
+            }
+            include CIP_PLUGIN_DIR . 'admin/questions-manager-enhanced.php';
+        }
+    );
+    
+    // Submissions submenu
+    add_submenu_page(
+        'cleanindex-portal',
+        __('Submissions', 'cleanindex-portal'),
+        __('Submissions', 'cleanindex-portal'),
+        'manage_options',
+        'cleanindex-submissions',
+        'cip_admin_submissions_page'
+    );
+    
+    // System Info submenu
+    add_submenu_page(
+        'cleanindex-portal',
+        __('System Info', 'cleanindex-portal'),
+        __('System Info', 'cleanindex-portal'),
+        'manage_options',
+        'cleanindex-system',
+        'cip_admin_system_page'
     );
 }
 
-function cip_debug_page() {
-    if (!current_user_can('manage_options')) {
-        return;
-    }
-    
-    // Reset if requested
-    if (isset($_POST['cip_reset_nonce']) && wp_verify_nonce($_POST['cip_reset_nonce'], 'cip_reset')) {
-        delete_option('cip_products_initialized');
-        delete_option('cip_plan_product_0');
-        delete_option('cip_plan_product_1');
-        delete_option('cip_plan_product_2');
-        echo '<div class="notice notice-success"><p>Reset complete. Please refresh.</p></div>';
-    }
-    
-    $pricing_plans = get_option('cip_pricing_plans', []);
-    
-    ?>
-    <div class="wrap">
-        <h1>CleanIndex Debug</h1>
-        
-        <h2>Status</h2>
-        <table class="widefat">
-            <thead>
-                <tr>
-                    <th>Plan</th>
-                    <th>Index</th>
-                    <th>Product ID</th>
-                    <th>Product Exists</th>
-                    <th>Product Name</th>
-                </tr>
-            </thead>
-            <tbody>
-                <?php foreach ($pricing_plans as $index => $plan): ?>
-                    <?php 
-                    $product_id = get_option('cip_plan_product_' . $index);
-                    $product = wc_get_product($product_id);
-                    ?>
-                    <tr>
-                        <td><strong><?php echo esc_html($plan['name']); ?></strong></td>
-                        <td><?php echo $index; ?></td>
-                        <td><?php echo $product_id ? $product_id : '❌ NOT SET'; ?></td>
-                        <td><?php echo $product ? '✅ YES' : '❌ NO'; ?></td>
-                        <td><?php echo $product ? esc_html($product->get_name()) : 'N/A'; ?></td>
-                    </tr>
-                <?php endforeach; ?>
-            </tbody>
-        </table>
-        
-        <hr>
-        
-        <h2>Actions</h2>
-        <form method="post">
-            <?php wp_nonce_field('cip_reset', 'cip_reset_nonce'); ?>
-            <button type="submit" class="button button-danger">
-                Reset & Recreate Products
-            </button>
-        </form>
-        
-        <hr>
-        <h2>Debug Info</h2>
-        <p><strong>WooCommerce Active:</strong> <?php echo class_exists('WC_Product_Simple') ? '✅ YES' : '❌ NO'; ?></p>
-        <p><strong>Initialized:</strong> <?php echo get_option('cip_products_initialized') ? '✅ YES' : '❌ NO'; ?></p>
-        <p><strong>Check logs:</strong> <code>/wp-content/debug.log</code></p>
-    </div>
-    <?php
+function cip_get_default_questions() {
+    return [
+        1 => [
+            'title' => 'General Requirements & Materiality Analysis',
+            'questions' => [
+                'q1_1' => 'What sustainability impacts, risks, and opportunities (IROs) does your company have?',
+                'q1_2' => 'How have you engaged stakeholders in identifying material topics?',
+                'q1_3' => 'What are the boundaries of your reporting?',
+                'q1_4' => 'Have you conducted a step-by-step materiality analysis?',
+                'q1_5' => 'Which ESRS standards are material for you?'
+            ]
+        ],
+        2 => [
+            'title' => 'Company Profile & Governance',
+            'questions' => [
+                'q2_1' => 'What is your business model?',
+                'q2_2' => 'How do sustainability factors integrate?',
+                'q2_3' => 'How is your board involved in managing sustainability?',
+                'q2_4' => 'What due diligence processes do you have?',
+                'q2_5' => 'Which compensation structures are linked to sustainability?'
+            ]
+        ]
+    ];
 }
 
 }

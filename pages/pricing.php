@@ -1,7 +1,7 @@
 <?php
 /**
- * Fixed Pricing Page with AJAX Checkout (REQUIREMENT #6)
- * REPLACE pages/pricing.php with this
+ * Updated Pricing Page - Direct Subscription (No WooCommerce)
+ * REPLACE: pages/pricing.php with this version
  */
 
 if (!defined('ABSPATH')) exit;
@@ -11,37 +11,39 @@ if (!is_user_logged_in()) {
     exit;
 }
 
-// Get pricing plans
-$pricing_plans = get_option('cip_pricing_plans', [
-    [
-        'name' => 'Basic',
-        'price' => '499',
-        'currency' => 'EUR',
-        'features' => "ESG Assessment\nBasic Certificate\nEmail Support\n1 Year Validity",
-        'popular' => false
-    ],
-    [
-        'name' => 'Professional',
-        'price' => '999',
-        'currency' => 'EUR',
-        'features' => "ESG Assessment\nPremium Certificate\nPriority Support\n2 Years Validity\nBenchmarking Report\nDirectory Listing",
-        'popular' => true
-    ],
-    [
-        'name' => 'Enterprise',
-        'price' => '1999',
-        'currency' => 'EUR',
-        'features' => "ESG Assessment\nPremium Certificate\nDedicated Support\n3 Years Validity\nDetailed Analytics\nFeatured Directory Listing\nCustom Reporting\nAPI Access",
-        'popular' => false
-    ]
-]);
+// Check if assessment is complete
+global $wpdb;
+$table_registrations = $wpdb->prefix . 'company_registrations';
+$table_assessments = $wpdb->prefix . 'company_assessments';
 
-// Convert features string to array if needed
-foreach ($pricing_plans as &$plan) {
-    if (!is_array($plan['features'])) {
-        $plan['features'] = array_filter(array_map('trim', explode("\n", $plan['features'])));
-    }
+$registration = $wpdb->get_row($wpdb->prepare(
+    "SELECT * FROM $table_registrations WHERE email = %s",
+    wp_get_current_user()->user_email
+), ARRAY_A);
+
+if (!$registration) {
+    wp_redirect(home_url('/cleanindex/dashboard'));
+    exit;
 }
+
+$assessment = $wpdb->get_row($wpdb->prepare(
+    "SELECT * FROM $table_assessments WHERE user_id = %d AND progress >= 5",
+    $registration['id']
+), ARRAY_A);
+
+if (!$assessment) {
+    wp_redirect(home_url('/cleanindex/assessment'));
+    exit;
+}
+
+// Check existing subscription
+$existing_subscription = $wpdb->get_row($wpdb->prepare(
+    "SELECT * FROM {$wpdb->prefix}cip_subscriptions WHERE user_id = %d AND status = 'active'",
+    wp_get_current_user()->ID
+), ARRAY_A);
+
+// Get pricing plans
+$pricing_plans = get_option('cip_pricing_plans', []);
 
 ?>
 <!DOCTYPE html>
@@ -49,57 +51,55 @@ foreach ($pricing_plans as &$plan) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pricing Plans - CleanIndex Portal</title>
+    <title>Subscribe Now - CleanIndex Portal</title>
     <?php wp_head(); ?>
     <style>
         .pricing-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: var(--spacing-lg);
-            margin: var(--spacing-xl) 0;
+            gap: 32px;
+            margin: 40px 0;
         }
         
         .pricing-card {
-            background: var(--white);
-            border-radius: var(--radius-xl);
-            padding: var(--spacing-xl);
-            border: 2px solid var(--gray-200);
+            background: white;
+            border-radius: 16px;
+            padding: 32px;
+            border: 2px solid #e5e7eb;
             transition: all 0.3s ease;
             position: relative;
         }
         
         .pricing-card:hover {
-            transform: translateY(-4px);
-            box-shadow: var(--shadow-lg);
-            border-color: var(--primary);
+            transform: translateY(-8px);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.15);
+            border-color: #4CAF50;
         }
         
         .pricing-card.popular {
-            border-color: var(--primary);
-            box-shadow: var(--shadow-md);
+            border-color: #4CAF50;
+            box-shadow: 0 10px 30px rgba(76, 175, 80, 0.2);
         }
         
         .popular-badge {
             position: absolute;
-            top: -12px;
+            top: -16px;
             right: 20px;
-            background: var(--primary);
+            background: #4CAF50;
             color: white;
-            padding: 6px 16px;
+            padding: 8px 16px;
             border-radius: 20px;
             font-weight: 600;
-            font-size: 11px;
+            font-size: 12px;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
         }
         
         .price {
             font-size: 48px;
             font-weight: 700;
-            color: var(--primary);
-            font-family: 'Raleway', sans-serif;
+            color: #4CAF50;
             line-height: 1;
-            margin: var(--spacing-lg) 0;
+            margin: 24px 0;
         }
         
         .price-currency {
@@ -109,35 +109,52 @@ foreach ($pricing_plans as &$plan) {
         
         .price-period {
             font-size: 14px;
-            color: var(--gray-500);
+            color: #6b7280;
             font-weight: 400;
         }
         
         .feature-list {
             list-style: none;
             padding: 0;
-            margin: var(--spacing-lg) 0;
+            margin: 24px 0;
         }
         
         .feature-list li {
-            padding: 10px 0;
-            border-bottom: 1px solid var(--gray-100);
+            padding: 12px 0;
+            border-bottom: 1px solid #f3f4f6;
             display: flex;
             align-items: center;
             gap: 10px;
             font-size: 14px;
-            color: var(--gray-700);
-        }
-        
-        .feature-list li:last-child {
-            border-bottom: none;
+            color: #374151;
         }
         
         .feature-list li::before {
             content: '✓';
-            color: var(--primary);
+            color: #4CAF50;
             font-weight: bold;
-            font-size: 16px;
+            font-size: 18px;
+        }
+        
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+        
+        .spinner {
+            border: 4px solid #f3f4f6;
+            border-top: 4px solid #4CAF50;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
         }
     </style>
 </head>
@@ -149,19 +166,30 @@ foreach ($pricing_plans as &$plan) {
                 <ul class="dashboard-nav">
                     <li><a href="<?php echo home_url('/cleanindex/dashboard'); ?>">📊 Dashboard</a></li>
                     <li><a href="<?php echo home_url('/cleanindex/assessment'); ?>">📝 Assessment</a></li>
-                    <li><a href="<?php echo home_url('/cleanindex/pricing'); ?>" class="active">💳 Subscription</a></li>
+                    <li><a href="<?php echo home_url('/cleanindex/pricing'); ?>" class="active">💳 Subscribe</a></li>
                     <li><a href="<?php echo wp_logout_url(home_url('/cleanindex/login')); ?>">🚪 Logout</a></li>
                 </ul>
             </nav>
         </aside>
         
         <main class="dashboard-content">
-            <div class="text-center" style="margin-bottom: var(--spacing-xl);">
-                <h1 style="font-size: 36px; margin-bottom: 12px;">Choose Your Plan</h1>
-                <p style="font-size: 16px; color: var(--gray-600);">
-                    Select the perfect plan for your organization's ESG journey
+            <div style="text-align: center; margin-bottom: 48px;">
+                <h1 style="font-size: 36px; margin-bottom: 12px;">Choose Your Subscription</h1>
+                <p style="font-size: 16px; color: #6b7280;">
+                    Select a plan to get your ESG certificate and unlock premium features
                 </p>
             </div>
+            
+            <?php if ($existing_subscription): ?>
+                <div class="alert alert-success" style="margin-bottom: 32px;">
+                    ✅ <strong>Active Subscription:</strong> You already have an active 
+                    <strong><?php echo esc_html($existing_subscription['plan_name']); ?></strong> 
+                    subscription until <?php echo date('F j, Y', strtotime($existing_subscription['end_date'])); ?>.
+                    <a href="<?php echo home_url('/cleanindex/dashboard'); ?>" style="margin-left: 1rem;">
+                        Back to Dashboard →
+                    </a>
+                </div>
+            <?php endif; ?>
             
             <div class="pricing-grid">
                 <?php foreach ($pricing_plans as $index => $plan): ?>
@@ -170,7 +198,7 @@ foreach ($pricing_plans as &$plan) {
                             <div class="popular-badge">⭐ Most Popular</div>
                         <?php endif; ?>
                         
-                        <h3 style="font-size: 22px; margin-bottom: 8px; color: var(--black);">
+                        <h3 style="font-size: 22px; margin-bottom: 8px; margin-top: 0; color: #111827;">
                             <?php echo esc_html($plan['name']); ?>
                         </h3>
                         
@@ -180,29 +208,75 @@ foreach ($pricing_plans as &$plan) {
                         </div>
                         
                         <ul class="feature-list">
-                            <?php foreach ($plan['features'] as $feature): ?>
-                                <?php if (!empty(trim($feature))): ?>
-                                    <li><?php echo esc_html($feature); ?></li>
-                                <?php endif; ?>
-                            <?php endforeach; ?>
+                            <?php 
+                            $features = is_array($plan['features']) ? $plan['features'] : 
+                                       array_filter(array_map('trim', explode("\n", $plan['features'])));
+                            foreach ($features as $feature): 
+                                if (!empty($feature)): 
+                            ?>
+                                <li><?php echo esc_html($feature); ?></li>
+                            <?php 
+                                endif; 
+                            endforeach; 
+                            ?>
                         </ul>
                         
-                        <button onclick="selectPlan(<?php echo $index; ?>)" 
-                                class="btn <?php echo $plan['popular'] ? 'btn-primary' : 'btn-outline'; ?>" 
-                                style="width: 100%; padding: 14px; font-size: 15px; margin-top: auto;">
-                            <?php echo $plan['popular'] ? '🚀 Get Started' : 'Select Plan'; ?>
+                        <button 
+                            onclick="subscribePlan(<?php echo $index; ?>, '<?php echo esc_js($plan['name']); ?>')"
+                            class="btn <?php echo $plan['popular'] ? 'btn-primary' : 'btn-outline'; ?>"
+                            style="width: 100%; padding: 14px; font-size: 15px; font-weight: 600;">
+                            <?php echo $plan['popular'] ? '🚀 Subscribe Now' : 'Select Plan'; ?>
                         </button>
                     </div>
                 <?php endforeach; ?>
             </div>
             
-            <div class="glass-card" style="margin-top: var(--spacing-xl); text-align: center;">
-                <h3 style="margin-bottom: 12px;">💡 Need Help Choosing?</h3>
-                <p style="color: var(--gray-600); margin-bottom: var(--spacing-md);">
-                    Our team is here to help you select the best plan for your needs.
+            <!-- FAQ Section -->
+            <div class="glass-card" style="margin-top: 48px;">
+                <h2 style="text-align: center; margin-bottom: 32px;">❓ Frequently Asked Questions</h2>
+                
+                <div style="display: grid; gap: 24px;">
+                    <div>
+                        <h4 style="margin-bottom: 8px; color: #4CAF50;">💳 What payment methods do you accept?</h4>
+                        <p style="color: #6b7280; margin: 0;">
+                            We accept all major credit/debit cards and bank transfers. 
+                            Invoices will be sent to your registered email.
+                        </p>
+                    </div>
+                    
+                    <div>
+                        <h4 style="margin-bottom: 8px; color: #4CAF50;">🔄 Can I change my plan later?</h4>
+                        <p style="color: #6b7280; margin: 0;">
+                            Yes, you can upgrade or downgrade your plan at any time. 
+                            Changes take effect on your next billing date.
+                        </p>
+                    </div>
+                    
+                    <div>
+                        <h4 style="margin-bottom: 8px; color: #4CAF50;">📜 What's included in the certificate?</h4>
+                        <p style="color: #6b7280; margin: 0;">
+                            Your certificate includes your ESG grade, verification number, and validity period. 
+                            You can share it publicly or use it internally.
+                        </p>
+                    </div>
+                    
+                    <div>
+                        <h4 style="margin-bottom: 8px; color: #4CAF50;">❌ Can I cancel anytime?</h4>
+                        <p style="color: #6b7280; margin: 0;">
+                            Yes, you can cancel your subscription anytime. Your certificate remains valid 
+                            until the end of your subscription period.
+                        </p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="glass-card" style="margin-top: 32px; text-align: center;">
+                <h3 style="margin-bottom: 16px;">💬 Need Help?</h3>
+                <p style="color: #6b7280; margin-bottom: 16px;">
+                    Our team is here to help you choose the right plan for your organization.
                 </p>
                 <a href="mailto:support@cleanindex.com" class="btn btn-accent">
-                    Contact Support
+                    Contact Support Team
                 </a>
             </div>
         </main>
@@ -210,42 +284,104 @@ foreach ($pricing_plans as &$plan) {
     
     <!-- Loading Overlay -->
     <div id="loadingOverlay" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); z-index: 9999; align-items: center; justify-content: center;">
-        <div style="background: white; padding: 32px; border-radius: 12px; text-align: center;">
+        <div style="background: white; padding: 48px 32px; border-radius: 12px; text-align: center;">
             <div class="spinner"></div>
-            <p style="margin-top: 16px; color: var(--gray-700);">Processing your selection...</p>
+            <p style="margin-top: 16px; color: #374151; font-weight: 500;">
+                Processing your subscription...
+            </p>
+        </div>
+    </div>
+    
+    <!-- Confirmation Modal -->
+    <div id="confirmationModal" class="modal-overlay" style="display: none;">
+        <div class="modal-content" style="max-width: 500px;">
+            <div class="modal-header">
+                <h2>Confirm Subscription</h2>
+                <button class="modal-close" onclick="closeModal()">×</button>
+            </div>
+            <div id="modalBody">
+                <!-- Content will be inserted here -->
+            </div>
         </div>
     </div>
     
     <script>
-    function selectPlan(planIndex) {
-        if (!confirm('Add this plan to cart and proceed to checkout?')) {
+    function subscribePlan(planIndex, planName) {
+        const plans = <?php echo json_encode($pricing_plans); ?>;
+        const plan = plans[planIndex];
+        
+        if (!plan) {
+            alert('Invalid plan selected');
             return;
         }
         
-        // Show loading
+        // Show confirmation modal
+        const modalBody = document.getElementById('modalBody');
+        modalBody.innerHTML = `
+            <div style="text-align: center;">
+                <div style="font-size: 3rem; margin-bottom: 16px;">💳</div>
+                <h3 style="margin: 0 0 16px 0;">${plan.name} Plan</h3>
+                <div style="font-size: 36px; font-weight: 700; color: #4CAF50; margin-bottom: 8px;">
+                    €${plan.price}<span style="font-size: 16px; color: #6b7280;">/year</span>
+                </div>
+                <p style="color: #6b7280; margin-bottom: 24px;">
+                    Your subscription will be active for 1 year. You'll receive a confirmation email with your certificate.
+                </p>
+                
+                <div style="background: #f9fafb; padding: 16px; border-radius: 8px; margin-bottom: 24px; text-align: left;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                        <span>Plan:</span>
+                        <strong>${plan.name}</strong>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                        <span>Price:</span>
+                        <strong>€${plan.price}</strong>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; border-top: 1px solid #e5e7eb; padding-top: 8px; margin-top: 8px;">
+                        <span style="font-weight: 600;">Total:</span>
+                        <strong style="font-size: 18px;">€${plan.price}</strong>
+                    </div>
+                </div>
+                
+                <div style="display: flex; gap: 12px;">
+                    <button onclick="processSubscription(${planIndex})" class="btn btn-primary" style="flex: 1; padding: 12px;">
+                        ✓ Confirm & Subscribe
+                    </button>
+                    <button onclick="closeModal()" class="btn btn-outline" style="flex: 1; padding: 12px;">
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        `;
+        
+        document.getElementById('confirmationModal').style.display = 'flex';
+    }
+    
+    function processSubscription(planIndex) {
+        closeModal();
         document.getElementById('loadingOverlay').style.display = 'flex';
         
-        // AJAX request to add to cart
         fetch('<?php echo admin_url('admin-ajax.php'); ?>', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
             },
             body: new URLSearchParams({
-                action: 'cip_add_to_cart',
-                nonce: '<?php echo wp_create_nonce('cip_checkout'); ?>',
+                action: 'cip_subscribe_plan',
+                nonce: '<?php echo wp_create_nonce('cip_subscribe'); ?>',
                 plan_index: planIndex
             })
         })
         .then(response => response.json())
         .then(data => {
+            document.getElementById('loadingOverlay').style.display = 'none';
+            
             if (data.success) {
-                // Redirect to checkout
-                window.location.href = data.data.checkout_url;
+                // Show success message
+                alert('🎉 Subscription activated successfully!\n\nYour ESG certificate is being generated.');
+                window.location.href = data.data.redirect;
             } else {
-                // Hide loading and show error
-                document.getElementById('loadingOverlay').style.display = 'none';
-                alert('Error: ' + (data.data.message || 'Failed to add to cart. Please try again.'));
+                alert('Error: ' + (data.data.message || 'Failed to process subscription'));
             }
         })
         .catch(error => {
@@ -253,6 +389,17 @@ foreach ($pricing_plans as &$plan) {
             alert('Error: ' + error.message);
         });
     }
+    
+    function closeModal() {
+        document.getElementById('confirmationModal').style.display = 'none';
+    }
+    
+    // Close modal on outside click
+    document.getElementById('confirmationModal').addEventListener('click', function(e) {
+        if (e.target === this) {
+            closeModal();
+        }
+    });
     </script>
     
     <?php wp_footer(); ?>

@@ -1,23 +1,28 @@
-<?php
 /**
- * Enhanced Admin Settings Page
- * Add this to admin/settings-page.php (REPLACE existing)
+ * ============================================
+ * SOLUTION 3: ENHANCED SETTINGS PAGE WITH
+ * EMAIL TEMPLATES & ALL OPTIONS
+ * ============================================
+ * 
+ * REPLACE: admin/settings-page.php with this enhanced version
  */
 
 if (!defined('ABSPATH')) exit;
+
+if (!current_user_can('manage_options')) {
+    wp_die('Access denied');
+}
 
 // Handle settings save
 if (isset($_POST['cip_settings_submit'])) {
     check_admin_referer('cip_settings_action', 'cip_settings_nonce');
     
-    // Save all settings
+    // General settings
     update_option('cip_company_name', sanitize_text_field($_POST['company_name']));
     update_option('cip_admin_email', sanitize_email($_POST['admin_email']));
     update_option('cip_enable_registration', isset($_POST['enable_registration']) ? '1' : '0');
     update_option('cip_max_file_size', intval($_POST['max_file_size']));
     update_option('cip_allowed_file_types', sanitize_text_field($_POST['allowed_file_types']));
-    
-    // Manager Access Code
     update_option('cip_manager_access_code', sanitize_text_field($_POST['manager_access_code']));
     
     // Branding
@@ -26,7 +31,7 @@ if (isset($_POST['cip_settings_submit'])) {
     update_option('cip_brand_primary_color', sanitize_hex_color($_POST['brand_primary_color']));
     update_option('cip_brand_secondary_color', sanitize_hex_color($_POST['brand_secondary_color']));
     
-    // GDPR Settings
+    // GDPR
     update_option('cip_gdpr_enabled', isset($_POST['gdpr_enabled']) ? '1' : '0');
     update_option('cip_gdpr_privacy_url', esc_url($_POST['gdpr_privacy_url']));
     update_option('cip_gdpr_terms_url', esc_url($_POST['gdpr_terms_url']));
@@ -38,23 +43,62 @@ if (isset($_POST['cip_settings_submit'])) {
     update_option('cip_cert_grade_esg1', intval($_POST['cert_grade_esg1']));
     update_option('cip_cert_validity_years', intval($_POST['cert_validity_years']));
     
-    echo '<div class="notice notice-success"><p>Settings saved successfully!</p></div>';
+    // Email Settings
+    update_option('cip_email_from_name', sanitize_text_field($_POST['email_from_name']));
+    update_option('cip_email_from_address', sanitize_email($_POST['email_from_address']));
+    
+    // Email Templates
+    update_option('cip_email_approval_subject', sanitize_text_field($_POST['email_approval_subject']));
+    update_option('cip_email_approval_body', wp_kses_post($_POST['email_approval_body']));
+    
+    update_option('cip_email_rejection_subject', sanitize_text_field($_POST['email_rejection_subject']));
+    update_option('cip_email_rejection_body', wp_kses_post($_POST['email_rejection_body']));
+    
+    update_option('cip_email_info_request_subject', sanitize_text_field($_POST['email_info_request_subject']));
+    update_option('cip_email_info_request_body', wp_kses_post($_POST['email_info_request_body']));
+    
+    update_option('cip_email_assessment_subject', sanitize_text_field($_POST['email_assessment_subject']));
+    update_option('cip_email_assessment_body', wp_kses_post($_POST['email_assessment_body']));
+    
+    update_option('cip_email_certificate_subject', sanitize_text_field($_POST['email_certificate_subject']));
+    update_option('cip_email_certificate_body', wp_kses_post($_POST['email_certificate_body']));
+    
+    echo '<div class="notice notice-success"><p>✅ All settings saved successfully!</p></div>';
 }
 
-// Get current settings
-$company_name = get_option('cip_company_name', 'CleanIndex');
-$admin_email = get_option('cip_admin_email', get_option('admin_email'));
-$enable_registration = get_option('cip_enable_registration', '1');
-$max_file_size = get_option('cip_max_file_size', 10);
-$allowed_file_types = get_option('cip_allowed_file_types', 'pdf,doc,docx');
-$manager_access_code = get_option('cip_manager_access_code', 'CLEANINDEX2025');
-$brand_logo = get_option('cip_brand_logo', '');
-$brand_tagline = get_option('cip_brand_tagline', 'ESG Certification Platform');
-$brand_primary = get_option('cip_brand_primary_color', '#4CAF50');
-$brand_secondary = get_option('cip_brand_secondary_color', '#EB5E28');
-$gdpr_enabled = get_option('cip_gdpr_enabled', '0');
-$gdpr_privacy_url = get_option('cip_gdpr_privacy_url', '');
-$gdpr_terms_url = get_option('cip_gdpr_terms_url', '');
+// Get current options
+$options = [
+    'company_name' => get_option('cip_company_name', 'CleanIndex'),
+    'admin_email' => get_option('cip_admin_email', get_option('admin_email')),
+    'enable_registration' => get_option('cip_enable_registration', '1'),
+    'max_file_size' => get_option('cip_max_file_size', 10),
+    'allowed_file_types' => get_option('cip_allowed_file_types', 'pdf,doc,docx'),
+    'manager_access_code' => get_option('cip_manager_access_code', 'CLEANINDEX2025'),
+    'brand_logo' => get_option('cip_brand_logo', ''),
+    'brand_tagline' => get_option('cip_brand_tagline', ''),
+    'brand_primary' => get_option('cip_brand_primary_color', '#4CAF50'),
+    'brand_secondary' => get_option('cip_brand_secondary_color', '#EB5E28'),
+    'gdpr_enabled' => get_option('cip_gdpr_enabled', '0'),
+    'gdpr_privacy_url' => get_option('cip_gdpr_privacy_url', ''),
+    'gdpr_terms_url' => get_option('cip_gdpr_terms_url', ''),
+    'cert_grading_mode' => get_option('cip_cert_grading_mode', 'automatic'),
+    'cert_grade_esg3' => get_option('cip_cert_grade_esg3', 95),
+    'cert_grade_esg2' => get_option('cip_cert_grade_esg2', 85),
+    'cert_grade_esg1' => get_option('cip_cert_grade_esg1', 75),
+    'cert_validity_years' => get_option('cip_cert_validity_years', 1),
+    'email_from_name' => get_option('cip_email_from_name', 'CleanIndex'),
+    'email_from_address' => get_option('cip_email_from_address', get_option('admin_email')),
+    'email_approval_subject' => get_option('cip_email_approval_subject', 'Your Registration is Approved - CleanIndex'),
+    'email_approval_body' => get_option('cip_email_approval_body', 'Your registration has been approved!'),
+    'email_rejection_subject' => get_option('cip_email_rejection_subject', 'Additional Information Needed - CleanIndex'),
+    'email_rejection_body' => get_option('cip_email_rejection_body', 'We need more information...'),
+    'email_info_request_subject' => get_option('cip_email_info_request_subject', 'Information Request - CleanIndex'),
+    'email_info_request_body' => get_option('cip_email_info_request_body', 'Please provide...'),
+    'email_assessment_subject' => get_option('cip_email_assessment_subject', 'Start Your ESG Assessment - CleanIndex'),
+    'email_assessment_body' => get_option('cip_email_assessment_body', 'You can now start your assessment...'),
+    'email_certificate_subject' => get_option('cip_email_certificate_subject', 'Your ESG Certificate - CleanIndex'),
+    'email_certificate_body' => get_option('cip_email_certificate_body', 'Your certificate is ready!'),
+];
 ?>
 
 <div class="wrap">
@@ -63,218 +107,338 @@ $gdpr_terms_url = get_option('cip_gdpr_terms_url', '');
     <h2 class="nav-tab-wrapper">
         <a href="#general" class="nav-tab nav-tab-active" onclick="switchTab(event, 'general')">⚙️ General</a>
         <a href="#branding" class="nav-tab" onclick="switchTab(event, 'branding')">🎨 Branding</a>
-        <a href="#managers" class="nav-tab" onclick="switchTab(event, 'managers')">👥 Managers</a>
         <a href="#certificates" class="nav-tab" onclick="switchTab(event, 'certificates')">🏆 Certificates</a>
+        <a href="#email" class="nav-tab" onclick="switchTab(event, 'email')">📧 Email Settings</a>
         <a href="#gdpr" class="nav-tab" onclick="switchTab(event, 'gdpr')">🔒 GDPR</a>
-        <a href="#email" class="nav-tab" onclick="switchTab(event, 'email')">📧 Email Templates</a>
     </h2>
     
     <form method="post" action="">
         <?php wp_nonce_field('cip_settings_action', 'cip_settings_nonce'); ?>
         
-        <!-- General Tab -->
-        <div id="tab-general" class="tab-content" style="display: block;">
-            <div style="background: #fff; padding: 20px; margin: 20px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-                <h2>📊 General Settings</h2>
-                <table class="form-table">
-                    <tr>
-                        <th>Company Name</th>
-                        <td><input type="text" name="company_name" value="<?php echo esc_attr($company_name); ?>" class="regular-text"></td>
-                    </tr>
-                    <tr>
-                        <th>Admin Email</th>
-                        <td><input type="email" name="admin_email" value="<?php echo esc_attr($admin_email); ?>" class="regular-text"></td>
-                    </tr>
-                    <tr>
-                        <th>Enable Registration</th>
-                        <td>
-                            <label>
-                                <input type="checkbox" name="enable_registration" value="1" <?php checked($enable_registration, '1'); ?>>
-                                Allow new organizations to register
-                            </label>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th>Max File Size (MB)</th>
-                        <td><input type="number" name="max_file_size" value="<?php echo esc_attr($max_file_size); ?>" min="1" max="100" class="small-text"></td>
-                    </tr>
-                    <tr>
-                        <th>Allowed File Types</th>
-                        <td><input type="text" name="allowed_file_types" value="<?php echo esc_attr($allowed_file_types); ?>" class="regular-text"></td>
-                    </tr>
-                </table>
-            </div>
-        </div>
-        
-        <!-- Branding Tab -->
-        <div id="tab-branding" class="tab-content" style="display: none;">
-            <div style="background: #fff; padding: 20px; margin: 20px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-                <h2>🎨 Branding Settings</h2>
-                <table class="form-table">
-                    <tr>
-                        <th>Logo URL</th>
-                        <td>
-                            <input type="text" name="brand_logo" value="<?php echo esc_attr($brand_logo); ?>" class="regular-text">
-                            <p class="description">Enter full URL to your logo image</p>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th>Tagline</th>
-                        <td><input type="text" name="brand_tagline" value="<?php echo esc_attr($brand_tagline); ?>" class="regular-text"></td>
-                    </tr>
-                    <tr>
-                        <th>Primary Color</th>
-                        <td><input type="color" name="brand_primary_color" value="<?php echo esc_attr($brand_primary); ?>"></td>
-                    </tr>
-                    <tr>
-                        <th>Secondary Color</th>
-                        <td><input type="color" name="brand_secondary_color" value="<?php echo esc_attr($brand_secondary); ?>"></td>
-                    </tr>
-                </table>
-            </div>
-        </div>
-        
-        <!-- Manager Access Tab -->
-        <div id="tab-managers" class="tab-content" style="display: none;">
-            <div style="background: #fff; padding: 20px; margin: 20px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-                <h2>👥 Manager Access</h2>
-                <table class="form-table">
-                    <tr>
-                        <th>Manager Access Code</th>
-                        <td>
-                            <input type="text" name="manager_access_code" value="<?php echo esc_attr($manager_access_code); ?>" class="regular-text">
-                            <p class="description">This code is required to register as a manager. Share it only with trusted team members.</p>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th>Manager Registration URL</th>
-                        <td>
-                            <input type="text" value="<?php echo home_url('/cleanindex/manager-register'); ?>" class="regular-text" readonly onclick="this.select()">
-                            <button type="button" onclick="copyToClipboard('<?php echo home_url('/cleanindex/manager-register'); ?>')" class="button">Copy URL</button>
-                        </td>
-                    </tr>
-                </table>
+        <!-- GENERAL TAB -->
+        <div id="tab-general" class="tab-content" style="display: block; background: white; padding: 20px; margin: 20px 0; border-radius: 8px;">
+            <h2>General Settings</h2>
+            
+            <table class="form-table">
+                <tr>
+                    <th><label for="company_name">Company Name</label></th>
+                    <td>
+                        <input type="text" id="company_name" name="company_name" class="regular-text" 
+                               value="<?php echo esc_attr($options['company_name']); ?>">
+                        <p class="description">The name of your organization</p>
+                    </td>
+                </tr>
                 
-                <div style="margin-top: 30px;">
-                    <h3>Current Managers</h3>
-                    <?php
-                    $managers = get_users(['role' => 'manager']);
-                    if (!empty($managers)):
-                    ?>
-                        <table class="wp-list-table widefat">
-                            <thead>
-                                <tr>
-                                    <th>Name</th>
-                                    <th>Email</th>
-                                    <th>Registered</th>
-                                    <th>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($managers as $manager): ?>
-                                    <tr>
-                                        <td><?php echo esc_html($manager->display_name); ?></td>
-                                        <td><?php echo esc_html($manager->user_email); ?></td>
-                                        <td><?php echo date('M d, Y', strtotime($manager->user_registered)); ?></td>
-                                        <td>
-                                            <a href="<?php echo get_edit_user_link($manager->ID); ?>" class="button button-small">Edit</a>
-                                        </td>
-                                    </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    <?php else: ?>
-                        <p>No managers registered yet.</p>
-                    <?php endif; ?>
+                <tr>
+                    <th><label for="admin_email">Admin Email</label></th>
+                    <td>
+                        <input type="email" id="admin_email" name="admin_email" class="regular-text" 
+                               value="<?php echo esc_attr($options['admin_email']); ?>">
+                        <p class="description">Email for system notifications</p>
+                    </td>
+                </tr>
+                
+                <tr>
+                    <th><label for="enable_registration">Enable Registration</label></th>
+                    <td>
+                        <label>
+                            <input type="checkbox" id="enable_registration" name="enable_registration" 
+                                   value="1" <?php checked($options['enable_registration'], '1'); ?>>
+                            Allow new organizations to register
+                        </label>
+                    </td>
+                </tr>
+                
+                <tr>
+                    <th><label for="max_file_size">Max File Size (MB)</label></th>
+                    <td>
+                        <input type="number" id="max_file_size" name="max_file_size" class="small-text" 
+                               value="<?php echo esc_attr($options['max_file_size']); ?>" min="1" max="100">
+                    </td>
+                </tr>
+                
+                <tr>
+                    <th><label for="allowed_file_types">Allowed File Types</label></th>
+                    <td>
+                        <input type="text" id="allowed_file_types" name="allowed_file_types" class="regular-text" 
+                               value="<?php echo esc_attr($options['allowed_file_types']); ?>">
+                        <p class="description">Comma-separated values (e.g., pdf,doc,docx)</p>
+                    </td>
+                </tr>
+                
+                <tr>
+                    <th><label for="manager_access_code">Manager Access Code</label></th>
+                    <td>
+                        <input type="text" id="manager_access_code" name="manager_access_code" class="regular-text" 
+                               value="<?php echo esc_attr($options['manager_access_code']); ?>">
+                        <p class="description">Code required for manager registration. Share with team members only.</p>
+                    </td>
+                </tr>
+            </table>
+        </div>
+        
+        <!-- BRANDING TAB -->
+        <div id="tab-branding" class="tab-content" style="display: none; background: white; padding: 20px; margin: 20px 0; border-radius: 8px;">
+            <h2>Branding Settings</h2>
+            
+            <table class="form-table">
+                <tr>
+                    <th><label for="brand_logo">Logo URL</label></th>
+                    <td>
+                        <input type="text" id="brand_logo" name="brand_logo" class="regular-text" 
+                               value="<?php echo esc_attr($options['brand_logo']); ?>">
+                        <p class="description">Full URL to your logo image</p>
+                        <?php if ($options['brand_logo']): ?>
+                            <img src="<?php echo esc_url($options['brand_logo']); ?>" 
+                                 style="max-width: 200px; max-height: 100px; margin-top: 10px; border-radius: 4px;">
+                        <?php endif; ?>
+                    </td>
+                </tr>
+                
+                <tr>
+                    <th><label for="brand_tagline">Tagline</label></th>
+                    <td>
+                        <input type="text" id="brand_tagline" name="brand_tagline" class="regular-text" 
+                               value="<?php echo esc_attr($options['brand_tagline']); ?>">
+                    </td>
+                </tr>
+                
+                <tr>
+                    <th><label for="brand_primary_color">Primary Color</label></th>
+                    <td>
+                        <input type="color" id="brand_primary_color" name="brand_primary_color" 
+                               value="<?php echo esc_attr($options['brand_primary']); ?>">
+                    </td>
+                </tr>
+                
+                <tr>
+                    <th><label for="brand_secondary_color">Secondary Color</label></th>
+                    <td>
+                        <input type="color" id="brand_secondary_color" name="brand_secondary_color" 
+                               value="<?php echo esc_attr($options['brand_secondary']); ?>">
+                    </td>
+                </tr>
+            </table>
+        </div>
+        
+        <!-- CERTIFICATES TAB -->
+        <div id="tab-certificates" class="tab-content" style="display: none; background: white; padding: 20px; margin: 20px 0; border-radius: 8px;">
+            <h2>Certificate Settings</h2>
+            
+            <table class="form-table">
+                <tr>
+                    <th><label for="cert_grading_mode">Grading System</label></th>
+                    <td>
+                        <label>
+                            <input type="radio" id="cert_grading_auto" name="cert_grading_mode" value="automatic" 
+                                   <?php checked($options['cert_grading_mode'], 'automatic'); ?>>
+                            <strong>Automatic</strong> - Grade based on assessment score
+                        </label><br>
+                        <label style="margin-top: 10px; display: block;">
+                            <input type="radio" name="cert_grading_mode" value="manual" 
+                                   <?php checked($options['cert_grading_mode'], 'manual'); ?>>
+                            <strong>Manual</strong> - Admin selects grade for each organization
+                        </label>
+                    </td>
+                </tr>
+                
+                <tr>
+                    <th colspan="2"><h3>Grade Thresholds</h3></th>
+                </tr>
+                
+                <tr>
+                    <th><label for="cert_grade_esg3">ESG+++ Threshold (%)</label></th>
+                    <td>
+                        <input type="number" id="cert_grade_esg3" name="cert_grade_esg3" class="small-text" 
+                               value="<?php echo esc_attr($options['cert_grade_esg3']); ?>" min="0" max="100"> %
+                    </td>
+                </tr>
+                
+                <tr>
+                    <th><label for="cert_grade_esg2">ESG++ Threshold (%)</label></th>
+                    <td>
+                        <input type="number" id="cert_grade_esg2" name="cert_grade_esg2" class="small-text" 
+                               value="<?php echo esc_attr($options['cert_grade_esg2']); ?>" min="0" max="100"> %
+                    </td>
+                </tr>
+                
+                <tr>
+                    <th><label for="cert_grade_esg1">ESG+ Threshold (%)</label></th>
+                    <td>
+                        <input type="number" id="cert_grade_esg1" name="cert_grade_esg1" class="small-text" 
+                               value="<?php echo esc_attr($options['cert_grade_esg1']); ?>" min="0" max="100"> %
+                    </td>
+                </tr>
+                
+                <tr>
+                    <th><label for="cert_validity_years">Certificate Validity (Years)</label></th>
+                    <td>
+                        <input type="number" id="cert_validity_years" name="cert_validity_years" class="small-text" 
+                               value="<?php echo esc_attr($options['cert_validity_years']); ?>" min="1" max="5">
+                    </td>
+                </tr>
+            </table>
+        </div>
+        
+        <!-- EMAIL SETTINGS TAB -->
+        <div id="tab-email" class="tab-content" style="display: none; background: white; padding: 20px; margin: 20px 0; border-radius: 8px;">
+            <h2>Email Configuration</h2>
+            
+            <table class="form-table">
+                <tr>
+                    <th colspan="2"><h3 style="margin: 0;">Email Sender Information</h3></th>
+                </tr>
+                
+                <tr>
+                    <th><label for="email_from_name">From Name</label></th>
+                    <td>
+                        <input type="text" id="email_from_name" name="email_from_name" class="regular-text" 
+                               value="<?php echo esc_attr($options['email_from_name']); ?>">
+                    </td>
+                </tr>
+                
+                <tr>
+                    <th><label for="email_from_address">From Email Address</label></th>
+                    <td>
+                        <input type="email" id="email_from_address" name="email_from_address" class="regular-text" 
+                               value="<?php echo esc_attr($options['email_from_address']); ?>">
+                    </td>
+                </tr>
+            </table>
+            
+            <!-- Email Templates -->
+            <div style="margin-top: 30px;">
+                <h3>Email Templates</h3>
+                
+                <!-- Approval Email -->
+                <div style="background: #f9f9f9; padding: 15px; margin: 15px 0; border-radius: 8px;">
+                    <h4>✅ Approval Email</h4>
+                    <p>
+                        <label>Subject:</label>
+                        <input type="text" name="email_approval_subject" class="large-text" 
+                               value="<?php echo esc_attr($options['email_approval_subject']); ?>">
+                    </p>
+                    <p>
+                        <label>Body:</label>
+                        <?php wp_editor($options['email_approval_body'], 'email_approval_body', [
+                            'media_buttons' => false,
+                            'textarea_rows' => 8,
+                            'teeny' => true
+                        ]); ?>
+                        <small style="color: #666;">Variables: {{company_name}}, {{assessment_link}}, {{dashboard_link}}</small>
+                    </p>
+                </div>
+                
+                <!-- Rejection Email -->
+                <div style="background: #f9f9f9; padding: 15px; margin: 15px 0; border-radius: 8px;">
+                    <h4>❌ Information Request Email</h4>
+                    <p>
+                        <label>Subject:</label>
+                        <input type="text" name="email_rejection_subject" class="large-text" 
+                               value="<?php echo esc_attr($options['email_rejection_subject']); ?>">
+                    </p>
+                    <p>
+                        <label>Body:</label>
+                        <?php wp_editor($options['email_rejection_body'], 'email_rejection_body', [
+                            'media_buttons' => false,
+                            'textarea_rows' => 8,
+                            'teeny' => true
+                        ]); ?>
+                        <small style="color: #666;">Variables: {{company_name}}, {{reason}}, {{register_link}}</small>
+                    </p>
+                </div>
+                
+                <!-- Info Request Email -->
+                <div style="background: #f9f9f9; padding: 15px; margin: 15px 0; border-radius: 8px;">
+                    <h4>📋 Info Request Email</h4>
+                    <p>
+                        <label>Subject:</label>
+                        <input type="text" name="email_info_request_subject" class="large-text" 
+                               value="<?php echo esc_attr($options['email_info_request_subject']); ?>">
+                    </p>
+                    <p>
+                        <label>Body:</label>
+                        <?php wp_editor($options['email_info_request_body'], 'email_info_request_body', [
+                            'media_buttons' => false,
+                            'textarea_rows' => 8,
+                            'teeny' => true
+                        ]); ?>
+                        <small style="color: #666;">Variables: {{company_name}}, {{message}}</small>
+                    </p>
+                </div>
+                
+                <!-- Assessment Email -->
+                <div style="background: #f9f9f9; padding: 15px; margin: 15px 0; border-radius: 8px;">
+                    <h4>🚀 Assessment Start Email</h4>
+                    <p>
+                        <label>Subject:</label>
+                        <input type="text" name="email_assessment_subject" class="large-text" 
+                               value="<?php echo esc_attr($options['email_assessment_subject']); ?>">
+                    </p>
+                    <p>
+                        <label>Body:</label>
+                        <?php wp_editor($options['email_assessment_body'], 'email_assessment_body', [
+                            'media_buttons' => false,
+                            'textarea_rows' => 8,
+                            'teeny' => true
+                        ]); ?>
+                        <small style="color: #666;">Variables: {{company_name}}, {{assessment_link}}, {{dashboard_link}}</small>
+                    </p>
+                </div>
+                
+                <!-- Certificate Email -->
+                <div style="background: #f9f9f9; padding: 15px; margin: 15px 0; border-radius: 8px;">
+                    <h4>🏆 Certificate Email</h4>
+                    <p>
+                        <label>Subject:</label>
+                        <input type="text" name="email_certificate_subject" class="large-text" 
+                               value="<?php echo esc_attr($options['email_certificate_subject']); ?>">
+                    </p>
+                    <p>
+                        <label>Body:</label>
+                        <?php wp_editor($options['email_certificate_body'], 'email_certificate_body', [
+                            'media_buttons' => false,
+                            'textarea_rows' => 8,
+                            'teeny' => true
+                        ]); ?>
+                        <small style="color: #666;">Variables: {{company_name}}, {{grade}}, {{certificate_url}}</small>
+                    </p>
                 </div>
             </div>
         </div>
         
-        <!-- Certificates Tab -->
-        <div id="tab-certificates" class="tab-content" style="display: none;">
-            <div style="background: #fff; padding: 20px; margin: 20px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-                <h2>🏆 Certificate Settings</h2>
-                <table class="form-table">
-                    <tr>
-                        <th>Grading System</th>
-                        <td>
-                            <label>
-                                <input type="radio" name="cert_grading_mode" value="automatic" <?php checked(get_option('cip_cert_grading_mode', 'automatic'), 'automatic'); ?>>
-                                <strong>Automatic</strong> - Grade based on assessment score
-                            </label><br>
-                            <label style="margin-top: 10px; display: block;">
-                                <input type="radio" name="cert_grading_mode" value="manual" <?php checked(get_option('cip_cert_grading_mode'), 'manual'); ?>>
-                                <strong>Manual</strong> - Admin selects grade
-                            </label>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th>Grade Thresholds</th>
-                        <td>
-                            <table>
-                                <tr>
-                                    <td><strong>ESG+++</strong></td>
-                                    <td>≥ <input type="number" name="cert_grade_esg3" value="<?php echo esc_attr(get_option('cip_cert_grade_esg3', '95')); ?>" class="small-text" min="0" max="100">%</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>ESG++</strong></td>
-                                    <td>≥ <input type="number" name="cert_grade_esg2" value="<?php echo esc_attr(get_option('cip_cert_grade_esg2', '85')); ?>" class="small-text" min="0" max="100">%</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>ESG+</strong></td>
-                                    <td>≥ <input type="number" name="cert_grade_esg1" value="<?php echo esc_attr(get_option('cip_cert_grade_esg1', '75')); ?>" class="small-text" min="0" max="100">%</td>
-                                </tr>
-                            </table>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th>Certificate Validity</th>
-                        <td>
-                            <input type="number" name="cert_validity_years" value="<?php echo esc_attr(get_option('cip_cert_validity_years', '1')); ?>" class="small-text" min="1" max="5"> years
-                        </td>
-                    </tr>
-                </table>
-            </div>
-        </div>
-        
-        <!-- GDPR Tab -->
-        <div id="tab-gdpr" class="tab-content" style="display: none;">
-            <div style="background: #fff; padding: 20px; margin: 20px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-                <h2>🔒 GDPR Settings</h2>
-                <table class="form-table">
-                    <tr>
-                        <th>Enable GDPR Compliance</th>
-                        <td>
-                            <label>
-                                <input type="checkbox" name="gdpr_enabled" value="1" <?php checked($gdpr_enabled, '1'); ?>>
-                                Show GDPR consent checkboxes on registration
-                            </label>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th>Privacy Policy URL</th>
-                        <td><input type="url" name="gdpr_privacy_url" value="<?php echo esc_attr($gdpr_privacy_url); ?>" class="regular-text"></td>
-                    </tr>
-                    <tr>
-                        <th>Terms & Conditions URL</th>
-                        <td><input type="url" name="gdpr_terms_url" value="<?php echo esc_attr($gdpr_terms_url); ?>" class="regular-text"></td>
-                    </tr>
-                </table>
-            </div>
-        </div>
-        
-        <!-- Email Templates Tab -->
-        <div id="tab-email" class="tab-content" style="display: none;">
-            <div style="background: #fff; padding: 20px; margin: 20px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-                <h2>📧 Email Templates</h2>
-                <p>Email templates are located in: <code>/mailer/email-templates/</code></p>
-                <ul>
-                    <li><strong>approval.html</strong> - Sent when organization is approved</li>
-                    <li><strong>rejection.html</strong> - Sent when more information is needed</li>
-                    <li><strong>info-request.html</strong> - Sent when manager requests more info</li>
-                </ul>
-                <p>You can customize these HTML files directly in your plugin folder.</p>
-            </div>
+        <!-- GDPR TAB -->
+        <div id="tab-gdpr" class="tab-content" style="display: none; background: white; padding: 20px; margin: 20px 0; border-radius: 8px;">
+            <h2>GDPR Settings</h2>
+            
+            <table class="form-table">
+                <tr>
+                    <th><label for="gdpr_enabled">Enable GDPR Compliance</label></th>
+                    <td>
+                        <label>
+                            <input type="checkbox" id="gdpr_enabled" name="gdpr_enabled" value="1" 
+                                   <?php checked($options['gdpr_enabled'], '1'); ?>>
+                            Show GDPR consent checkboxes on registration
+                        </label>
+                    </td>
+                </tr>
+                
+                <tr>
+                    <th><label for="gdpr_privacy_url">Privacy Policy URL</label></th>
+                    <td>
+                        <input type="url" id="gdpr_privacy_url" name="gdpr_privacy_url" class="large-text" 
+                               value="<?php echo esc_url($options['gdpr_privacy_url']); ?>">
+                    </td>
+                </tr>
+                
+                <tr>
+                    <th><label for="gdpr_terms_url">Terms & Conditions URL</label></th>
+                    <td>
+                        <input type="url" id="gdpr_terms_url" name="gdpr_terms_url" class="large-text" 
+                               value="<?php echo esc_url($options['gdpr_terms_url']); ?>">
+                    </td>
+                </tr>
+            </table>
         </div>
         
         <p class="submit">
@@ -292,11 +456,5 @@ function switchTab(e, tabName) {
     document.querySelectorAll('.nav-tab').forEach(tab => tab.classList.remove('nav-tab-active'));
     document.getElementById('tab-' + tabName).style.display = 'block';
     e.target.classList.add('nav-tab-active');
-}
-
-function copyToClipboard(text) {
-    navigator.clipboard.writeText(text).then(() => {
-        alert('URL copied to clipboard!');
-    });
 }
 </script>
