@@ -1,8 +1,7 @@
 <?php
 /**
- * ============================================
- * FILE 2: pricing.php (NEW)
- * ============================================
+ * Fixed Pricing Page with AJAX Checkout (REQUIREMENT #6)
+ * REPLACE pages/pricing.php with this
  */
 
 if (!defined('ABSPATH')) exit;
@@ -12,51 +11,37 @@ if (!is_user_logged_in()) {
     exit;
 }
 
-// Get pricing plans from settings
+// Get pricing plans
 $pricing_plans = get_option('cip_pricing_plans', [
     [
         'name' => 'Basic',
         'price' => '499',
         'currency' => 'EUR',
-        'features' => [
-            'ESG Assessment',
-            'Basic Certificate',
-            'Email Support',
-            '1 Year Validity'
-        ],
+        'features' => "ESG Assessment\nBasic Certificate\nEmail Support\n1 Year Validity",
         'popular' => false
     ],
     [
         'name' => 'Professional',
         'price' => '999',
         'currency' => 'EUR',
-        'features' => [
-            'ESG Assessment',
-            'Premium Certificate',
-            'Priority Support',
-            '2 Years Validity',
-            'Benchmarking Report',
-            'Directory Listing'
-        ],
+        'features' => "ESG Assessment\nPremium Certificate\nPriority Support\n2 Years Validity\nBenchmarking Report\nDirectory Listing",
         'popular' => true
     ],
     [
         'name' => 'Enterprise',
         'price' => '1999',
         'currency' => 'EUR',
-        'features' => [
-            'ESG Assessment',
-            'Premium Certificate',
-            'Dedicated Support',
-            '3 Years Validity',
-            'Detailed Analytics',
-            'Featured Directory Listing',
-            'Custom Reporting',
-            'API Access'
-        ],
+        'features' => "ESG Assessment\nPremium Certificate\nDedicated Support\n3 Years Validity\nDetailed Analytics\nFeatured Directory Listing\nCustom Reporting\nAPI Access",
         'popular' => false
     ]
 ]);
+
+// Convert features string to array if needed
+foreach ($pricing_plans as &$plan) {
+    if (!is_array($plan['features'])) {
+        $plan['features'] = array_filter(array_map('trim', explode("\n", $plan['features'])));
+    }
+}
 
 ?>
 <!DOCTYPE html>
@@ -69,62 +54,90 @@ $pricing_plans = get_option('cip_pricing_plans', [
     <style>
         .pricing-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 2rem;
-            margin: 3rem 0;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: var(--spacing-lg);
+            margin: var(--spacing-xl) 0;
         }
+        
         .pricing-card {
-            background: rgba(255, 255, 255, 0.3);
-            backdrop-filter: blur(15px);
-            border-radius: 20px;
-            padding: 2.5rem;
-            border: 2px solid rgba(255, 255, 255, 0.4);
+            background: var(--white);
+            border-radius: var(--radius-xl);
+            padding: var(--spacing-xl);
+            border: 2px solid var(--gray-200);
             transition: all 0.3s ease;
             position: relative;
         }
+        
         .pricing-card:hover {
-            transform: translateY(-10px);
-            box-shadow: 0 20px 40px rgba(0,0,0,0.15);
+            transform: translateY(-4px);
+            box-shadow: var(--shadow-lg);
+            border-color: var(--primary);
         }
+        
         .pricing-card.popular {
             border-color: var(--primary);
-            background: rgba(76, 175, 80, 0.1);
+            box-shadow: var(--shadow-md);
         }
+        
         .popular-badge {
             position: absolute;
-            top: -15px;
+            top: -12px;
             right: 20px;
             background: var(--primary);
             color: white;
-            padding: 0.5rem 1.5rem;
+            padding: 6px 16px;
             border-radius: 20px;
             font-weight: 600;
-            font-size: 0.875rem;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
+        
         .price {
-            font-size: 3.5rem;
+            font-size: 48px;
             font-weight: 700;
             color: var(--primary);
             font-family: 'Raleway', sans-serif;
-            margin: 1.5rem 0;
+            line-height: 1;
+            margin: var(--spacing-lg) 0;
         }
+        
+        .price-currency {
+            font-size: 24px;
+            vertical-align: super;
+        }
+        
+        .price-period {
+            font-size: 14px;
+            color: var(--gray-500);
+            font-weight: 400;
+        }
+        
         .feature-list {
             list-style: none;
             padding: 0;
-            margin: 2rem 0;
+            margin: var(--spacing-lg) 0;
         }
+        
         .feature-list li {
-            padding: 0.75rem 0;
-            border-bottom: 1px solid rgba(0,0,0,0.05);
+            padding: 10px 0;
+            border-bottom: 1px solid var(--gray-100);
             display: flex;
             align-items: center;
-            gap: 0.75rem;
+            gap: 10px;
+            font-size: 14px;
+            color: var(--gray-700);
         }
+        
+        .feature-list li:last-child {
+            border-bottom: none;
+        }
+        
         .feature-list li::before {
             content: '✓';
             color: var(--primary);
             font-weight: bold;
-            font-size: 1.25rem;
+            font-size: 16px;
         }
     </style>
 </head>
@@ -143,10 +156,10 @@ $pricing_plans = get_option('cip_pricing_plans', [
         </aside>
         
         <main class="dashboard-content">
-            <div class="text-center" style="margin-bottom: 3rem;">
-                <h1 style="font-size: 3rem; margin-bottom: 1rem;">Choose Your Plan</h1>
-                <p style="font-size: 1.25rem; color: var(--gray-medium);">
-                    Select the perfect plan for your organization
+            <div class="text-center" style="margin-bottom: var(--spacing-xl);">
+                <h1 style="font-size: 36px; margin-bottom: 12px;">Choose Your Plan</h1>
+                <p style="font-size: 16px; color: var(--gray-600);">
+                    Select the perfect plan for your organization's ESG journey
                 </p>
             </div>
             
@@ -157,34 +170,35 @@ $pricing_plans = get_option('cip_pricing_plans', [
                             <div class="popular-badge">⭐ Most Popular</div>
                         <?php endif; ?>
                         
-                        <h3 style="font-size: 1.75rem; margin-bottom: 0.5rem;"><?php echo esc_html($plan['name']); ?></h3>
+                        <h3 style="font-size: 22px; margin-bottom: 8px; color: var(--black);">
+                            <?php echo esc_html($plan['name']); ?>
+                        </h3>
                         
                         <div class="price">
-                            <span style="font-size: 1.5rem;">€</span><?php echo esc_html($plan['price']); ?>
-                            <span style="font-size: 1rem; color: var(--gray-medium); font-weight: 400;">/year</span>
+                            <span class="price-currency">€</span><?php echo esc_html($plan['price']); ?>
+                            <span class="price-period">/year</span>
                         </div>
                         
                         <ul class="feature-list">
                             <?php foreach ($plan['features'] as $feature): ?>
-                                <li><?php echo esc_html($feature); ?></li>
+                                <?php if (!empty(trim($feature))): ?>
+                                    <li><?php echo esc_html($feature); ?></li>
+                                <?php endif; ?>
                             <?php endforeach; ?>
                         </ul>
                         
-                        <form method="POST" action="<?php echo home_url('/cleanindex/checkout'); ?>">
-                            <?php wp_nonce_field('cip_checkout', 'cip_checkout_nonce'); ?>
-                            <input type="hidden" name="plan_index" value="<?php echo $index; ?>">
-                            <button type="submit" class="btn <?php echo $plan['popular'] ? 'btn-primary' : 'btn-outline'; ?>" 
-                                    style="width: 100%; padding: 1rem; font-size: 1.1rem;">
-                                <?php echo $plan['popular'] ? '🚀 Get Started' : 'Select Plan'; ?>
-                            </button>
-                        </form>
+                        <button onclick="selectPlan(<?php echo $index; ?>)" 
+                                class="btn <?php echo $plan['popular'] ? 'btn-primary' : 'btn-outline'; ?>" 
+                                style="width: 100%; padding: 14px; font-size: 15px; margin-top: auto;">
+                            <?php echo $plan['popular'] ? '🚀 Get Started' : 'Select Plan'; ?>
+                        </button>
                     </div>
                 <?php endforeach; ?>
             </div>
             
-            <div class="glass-card" style="margin-top: 3rem; text-align: center;">
-                <h3>💡 Need Help Choosing?</h3>
-                <p style="color: var(--gray-medium); margin-bottom: 1.5rem;">
+            <div class="glass-card" style="margin-top: var(--spacing-xl); text-align: center;">
+                <h3 style="margin-bottom: 12px;">💡 Need Help Choosing?</h3>
+                <p style="color: var(--gray-600); margin-bottom: var(--spacing-md);">
                     Our team is here to help you select the best plan for your needs.
                 </p>
                 <a href="mailto:support@cleanindex.com" class="btn btn-accent">
@@ -193,6 +207,53 @@ $pricing_plans = get_option('cip_pricing_plans', [
             </div>
         </main>
     </div>
+    
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); z-index: 9999; align-items: center; justify-content: center;">
+        <div style="background: white; padding: 32px; border-radius: 12px; text-align: center;">
+            <div class="spinner"></div>
+            <p style="margin-top: 16px; color: var(--gray-700);">Processing your selection...</p>
+        </div>
+    </div>
+    
+    <script>
+    function selectPlan(planIndex) {
+        if (!confirm('Add this plan to cart and proceed to checkout?')) {
+            return;
+        }
+        
+        // Show loading
+        document.getElementById('loadingOverlay').style.display = 'flex';
+        
+        // AJAX request to add to cart
+        fetch('<?php echo admin_url('admin-ajax.php'); ?>', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: new URLSearchParams({
+                action: 'cip_add_to_cart',
+                nonce: '<?php echo wp_create_nonce('cip_checkout'); ?>',
+                plan_index: planIndex
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Redirect to checkout
+                window.location.href = data.data.checkout_url;
+            } else {
+                // Hide loading and show error
+                document.getElementById('loadingOverlay').style.display = 'none';
+                alert('Error: ' + (data.data.message || 'Failed to add to cart. Please try again.'));
+            }
+        })
+        .catch(error => {
+            document.getElementById('loadingOverlay').style.display = 'none';
+            alert('Error: ' + error.message);
+        });
+    }
+    </script>
     
     <?php wp_footer(); ?>
 </body>
