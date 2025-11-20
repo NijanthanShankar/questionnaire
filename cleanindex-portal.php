@@ -262,6 +262,11 @@ function cip_activate_plugin() {
             update_option('cip_cert_validity_years', 1);
         }
         
+        // Set manager access code (NEW)
+        if (!get_option('cip_manager_access_code')) {
+            update_option('cip_manager_access_code', 'CLEANINDEX2025');
+        }
+        
         // Add rewrite rules and flush
         cip_add_rewrite_rules();
         flush_rewrite_rules();
@@ -410,7 +415,7 @@ function cip_enqueue_assets() {
 
 /**
  * ========================================
- * URL REWRITE RULES
+ * URL REWRITE RULES (UPDATED)
  * ========================================
  */
 add_action('init', 'cip_add_rewrite_rules');
@@ -423,6 +428,8 @@ function cip_add_rewrite_rules() {
         'dashboard',
         'assessment',
         'manager',
+        'manager-register',      // NEW
+        'manager-login',         // NEW
         'admin-portal',
         'reset-password',
         'pricing',
@@ -465,7 +472,7 @@ function cip_query_vars($vars) {
 
 /**
  * ========================================
- * TEMPLATE REDIRECT
+ * TEMPLATE REDIRECT (UPDATED)
  * ========================================
  */
 add_action('template_redirect', 'cip_template_redirect');
@@ -493,13 +500,15 @@ function cip_template_redirect() {
         exit;
     }
     
-    // Define template map
+    // Define template map (UPDATED)
     $template_map = [
         'register' => 'pages/register.php',
         'login' => 'pages/login.php',
         'dashboard' => 'pages/user-dashboard.php',
         'assessment' => 'pages/assessment.php',
-        'manager' => 'pages/manager-dashboard.php',
+        'manager' => 'pages/manager-dashboard-fixed.php',  // UPDATED - use fixed version
+        'manager-register' => 'pages/manager-register.php', // NEW
+        'manager-login' => 'pages/manager-login.php',       // NEW
         'admin-portal' => 'pages/admin-dashboard.php',
         'pricing' => 'pages/pricing.php',
         'checkout' => 'pages/checkout.php',
@@ -868,14 +877,31 @@ function cip_ajax_admin_action() {
 add_action('admin_init', 'cip_save_settings_enhanced');
 
 function cip_save_settings_enhanced() {
-    if (!isset($_POST['cip_settings_submit'])) return;
+    if (!isset($_POST['cip_settings_submit'])) {
+        return;
+    }
+    
+    if (!current_user_can('manage_options')) {
+        return;
+    }
     
     check_admin_referer('cip_settings_action', 'cip_settings_nonce');
     
     // Save general settings
+    if (isset($_POST['company_name'])) {
+        update_option('cip_company_name', sanitize_text_field($_POST['company_name']));
+    }
+    if (isset($_POST['admin_email'])) {
+        update_option('cip_admin_email', sanitize_email($_POST['admin_email']));
+    }
     update_option('cip_enable_registration', isset($_POST['enable_registration']) ? '1' : '0');
-    update_option('cip_admin_email', sanitize_email($_POST['admin_email']));
-    update_option('cip_company_name', sanitize_text_field($_POST['company_name']));
+    
+    if (isset($_POST['max_file_size'])) {
+        update_option('cip_max_file_size', intval($_POST['max_file_size']));
+    }
+    if (isset($_POST['allowed_file_types'])) {
+        update_option('cip_allowed_file_types', sanitize_text_field($_POST['allowed_file_types']));
+    }
     
     // Save pricing plans
     if (isset($_POST['pricing_plans'])) {
@@ -890,27 +916,33 @@ function cip_save_settings_enhanced() {
             ];
         }
         update_option('cip_pricing_plans', $pricing_plans);
+        
+        // Trigger WooCommerce product creation/update
+        if (function_exists('cip_update_woocommerce_products')) {
+            cip_update_woocommerce_products([], $pricing_plans);
+        }
     }
     
     // Save certificate settings
     if (isset($_POST['cert_grading_mode'])) {
         update_option('cip_cert_grading_mode', sanitize_text_field($_POST['cert_grading_mode']));
+    }
+    if (isset($_POST['cert_grade_esg3'])) {
         update_option('cip_cert_grade_esg3', intval($_POST['cert_grade_esg3']));
+    }
+    if (isset($_POST['cert_grade_esg2'])) {
         update_option('cip_cert_grade_esg2', intval($_POST['cert_grade_esg2']));
+    }
+    if (isset($_POST['cert_grade_esg1'])) {
         update_option('cip_cert_grade_esg1', intval($_POST['cert_grade_esg1']));
+    }
+    if (isset($_POST['cert_validity_years'])) {
         update_option('cip_cert_validity_years', intval($_POST['cert_validity_years']));
     }
     
-    // Save payment gateway settings
-    if (isset($_POST['payment_gateway'])) {
-        update_option('cip_payment_gateway', sanitize_text_field($_POST['payment_gateway']));
-        update_option('cip_stripe_publishable_key', sanitize_text_field($_POST['stripe_publishable_key']));
-        update_option('cip_stripe_secret_key', sanitize_text_field($_POST['stripe_secret_key']));
-        update_option('cip_paypal_client_id', sanitize_text_field($_POST['paypal_client_id']));
-        update_option('cip_paypal_secret', sanitize_text_field($_POST['paypal_secret']));
-        update_option('cip_paypal_sandbox', !empty($_POST['paypal_sandbox']));
-        update_option('cip_payment_currency', sanitize_text_field($_POST['payment_currency']));
-    }
+    // Redirect with success message
+    wp_redirect(add_query_arg('settings-updated', 'true', wp_get_referer()));
+    exit;
 }
 
 /**
@@ -988,6 +1020,8 @@ function cip_admin_settings_page() {
     $enable_registration = get_option('cip_enable_registration', '1');
     $admin_email = get_option('cip_admin_email', get_option('admin_email'));
     $company_name = get_option('cip_company_name', 'CleanIndex');
+    $max_file_size = get_option('cip_max_file_size', 10);
+    $allowed_file_types = get_option('cip_allowed_file_types', 'pdf,doc,docx');
     
     // Check if recently activated
     $activated = isset($_GET['activated']) ? true : false;
@@ -1075,7 +1109,9 @@ function cip_admin_system_page() {
         'pages/login.php',
         'pages/user-dashboard.php',
         'pages/assessment.php',
-        'pages/manager-dashboard.php',
+        'pages/manager-dashboard-fixed.php', // UPDATED
+        'pages/manager-register.php',         // NEW
+        'pages/manager-login.php',           // NEW
         'pages/admin-dashboard.php',
         'pages/pricing.php',
         'pages/checkout.php',
@@ -1159,10 +1195,12 @@ if (!function_exists('cip_uninstall')) {
             delete_option('cip_paypal_secret');
             delete_option('cip_paypal_sandbox');
             delete_option('cip_payment_currency');
+            delete_option('cip_manager_access_code'); // NEW
             delete_option('cip_remove_data_on_uninstall');
         }
     }
 }
+
 
 // Save settings handler
 add_action('admin_init', 'cip_save_settings_enhanced');
