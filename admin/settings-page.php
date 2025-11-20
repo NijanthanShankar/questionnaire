@@ -1,3 +1,4 @@
+<?php 
 /**
  * ============================================
  * SOLUTION 3: ENHANCED SETTINGS PAGE WITH
