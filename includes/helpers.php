@@ -408,3 +408,134 @@ function cip_debug_log($message, $data = null) {
         }
     }
 }
+
+
+/**
+ * Currency Helper Functions
+ * ADD TO: includes/helpers.php (at the end)
+ */
+
+/**
+ * Get all supported currencies with symbols
+ */
+function cip_get_currencies() {
+    return [
+        'USD' => ['name' => 'US Dollar', 'symbol' => '$', 'position' => 'before'],
+        'EUR' => ['name' => 'Euro', 'symbol' => '€', 'position' => 'before'],
+        'GBP' => ['name' => 'British Pound', 'symbol' => '£', 'position' => 'before'],
+        'INR' => ['name' => 'Indian Rupee', 'symbol' => '₹', 'position' => 'before'],
+        'AUD' => ['name' => 'Australian Dollar', 'symbol' => 'A$', 'position' => 'before'],
+        'CAD' => ['name' => 'Canadian Dollar', 'symbol' => 'C$', 'position' => 'before'],
+        'CHF' => ['name' => 'Swiss Franc', 'symbol' => 'CHF', 'position' => 'before'],
+        'CNY' => ['name' => 'Chinese Yuan', 'symbol' => '¥', 'position' => 'before'],
+        'JPY' => ['name' => 'Japanese Yen', 'symbol' => '¥', 'position' => 'before'],
+        'SEK' => ['name' => 'Swedish Krona', 'symbol' => 'kr', 'position' => 'after'],
+        'NOK' => ['name' => 'Norwegian Krone', 'symbol' => 'kr', 'position' => 'after'],
+        'DKK' => ['name' => 'Danish Krone', 'symbol' => 'kr', 'position' => 'after'],
+        'PLN' => ['name' => 'Polish Złoty', 'symbol' => 'zł', 'position' => 'after'],
+        'CZK' => ['name' => 'Czech Koruna', 'symbol' => 'Kč', 'position' => 'after'],
+        'HUF' => ['name' => 'Hungarian Forint', 'symbol' => 'Ft', 'position' => 'after'],
+        'RON' => ['name' => 'Romanian Leu', 'symbol' => 'lei', 'position' => 'after'],
+        'BGN' => ['name' => 'Bulgarian Lev', 'symbol' => 'лв', 'position' => 'after'],
+        'TRY' => ['name' => 'Turkish Lira', 'symbol' => '₺', 'position' => 'before'],
+        'BRL' => ['name' => 'Brazilian Real', 'symbol' => 'R$', 'position' => 'before'],
+        'MXN' => ['name' => 'Mexican Peso', 'symbol' => 'Mex$', 'position' => 'before'],
+        'ARS' => ['name' => 'Argentine Peso', 'symbol' => 'ARS$', 'position' => 'before'],
+        'ZAR' => ['name' => 'South African Rand', 'symbol' => 'R', 'position' => 'before'],
+        'KRW' => ['name' => 'South Korean Won', 'symbol' => '₩', 'position' => 'before'],
+        'SGD' => ['name' => 'Singapore Dollar', 'symbol' => 'S$', 'position' => 'before'],
+        'HKD' => ['name' => 'Hong Kong Dollar', 'symbol' => 'HK$', 'position' => 'before'],
+        'NZD' => ['name' => 'New Zealand Dollar', 'symbol' => 'NZ$', 'position' => 'before'],
+        'THB' => ['name' => 'Thai Baht', 'symbol' => '฿', 'position' => 'before'],
+        'MYR' => ['name' => 'Malaysian Ringgit', 'symbol' => 'RM', 'position' => 'before'],
+        'IDR' => ['name' => 'Indonesian Rupiah', 'symbol' => 'Rp', 'position' => 'before'],
+        'PHP' => ['name' => 'Philippine Peso', 'symbol' => '₱', 'position' => 'before'],
+        'VND' => ['name' => 'Vietnamese Dong', 'symbol' => '₫', 'position' => 'after'],
+        'AED' => ['name' => 'UAE Dirham', 'symbol' => 'د.إ', 'position' => 'after'],
+        'SAR' => ['name' => 'Saudi Riyal', 'symbol' => '﷼', 'position' => 'after'],
+        'ILS' => ['name' => 'Israeli Shekel', 'symbol' => '₪', 'position' => 'before'],
+        'RUB' => ['name' => 'Russian Ruble', 'symbol' => '₽', 'position' => 'after'],
+        'UAH' => ['name' => 'Ukrainian Hryvnia', 'symbol' => '₴', 'position' => 'before'],
+        'EGP' => ['name' => 'Egyptian Pound', 'symbol' => '£', 'position' => 'before'],
+        'NGN' => ['name' => 'Nigerian Naira', 'symbol' => '₦', 'position' => 'before'],
+        'KES' => ['name' => 'Kenyan Shilling', 'symbol' => 'KSh', 'position' => 'before'],
+    ];
+}
+
+/**
+ * Format amount with currency symbol
+ * 
+ * @param float $amount The amount to format
+ * @param string $currency_code Currency code (e.g., 'USD', 'EUR')
+ * @param bool $include_decimals Whether to show decimals
+ * @return string Formatted currency string
+ */
+function cip_format_price($amount, $currency_code = null, $include_decimals = true) {
+    if (!$currency_code) {
+        $currency_code = get_option('cip_default_currency', 'EUR');
+    }
+    
+    $currencies = cip_get_currencies();
+    
+    if (!isset($currencies[$currency_code])) {
+        $currency_code = 'EUR'; // Fallback
+    }
+    
+    $currency = $currencies[$currency_code];
+    $symbol = $currency['symbol'];
+    $position = $currency['position'];
+    
+    // Format the number
+    if ($include_decimals) {
+        $formatted_amount = number_format((float)$amount, 2, '.', ',');
+    } else {
+        $formatted_amount = number_format((float)$amount, 0, '', ',');
+    }
+    
+    // Position the symbol
+    if ($position === 'before') {
+        return $symbol . $formatted_amount;
+    } else {
+        return $formatted_amount . ' ' . $symbol;
+    }
+}
+
+/**
+ * Get currency symbol
+ * 
+ * @param string $currency_code Currency code
+ * @return string Currency symbol
+ */
+function cip_get_currency_symbol($currency_code = null) {
+    if (!$currency_code) {
+        $currency_code = get_option('cip_default_currency', 'EUR');
+    }
+    
+    $currencies = cip_get_currencies();
+    
+    if (isset($currencies[$currency_code])) {
+        return $currencies[$currency_code]['symbol'];
+    }
+    
+    return $currency_code; // Fallback to code
+}
+
+/**
+ * Get currency name
+ * 
+ * @param string $currency_code Currency code
+ * @return string Currency name
+ */
+function cip_get_currency_name($currency_code = null) {
+    if (!$currency_code) {
+        $currency_code = get_option('cip_default_currency', 'EUR');
+    }
+    
+    $currencies = cip_get_currencies();
+    
+    if (isset($currencies[$currency_code])) {
+        return $currencies[$currency_code]['name'];
+    }
+    
+    return $currency_code;
+}

@@ -1,6 +1,6 @@
 <?php
 /**
- * Direct WooCommerce Payment Integration (No Cart/Checkout)
+ * FIXED Payment Handler with Razorpay Support
  * REPLACE: includes/payment-handler.php
  */
 
@@ -55,6 +55,54 @@ function cip_ensure_products_exist() {
 }
 
 /**
+ * AJAX: Get Available Payment Methods
+ */
+add_action('wp_ajax_cip_get_payment_methods', 'cip_ajax_get_payment_methods');
+
+function cip_ajax_get_payment_methods() {
+    check_ajax_referer('cip_payment_direct', 'nonce');
+    
+    if (!is_user_logged_in()) {
+        wp_send_json_error(['message' => 'Please login first']);
+        return;
+    }
+    
+    if (!class_exists('WooCommerce')) {
+        wp_send_json_error(['message' => 'WooCommerce is not installed']);
+        return;
+    }
+    
+    // Get available payment gateways
+    $gateways = WC()->payment_gateways->get_available_payment_gateways();
+    $methods = [];
+    
+    if (empty($gateways)) {
+        wp_send_json_error(['message' => 'No payment methods available. Please enable payment gateways in WooCommerce settings.']);
+        return;
+    }
+    
+    foreach ($gateways as $gateway_id => $gateway) {
+        // Check if gateway is enabled and available
+        if ($gateway->is_available() && $gateway->enabled === 'yes') {
+            $methods[] = [
+                'id' => $gateway_id,
+                'title' => $gateway->get_title(),
+                'description' => $gateway->get_description(),
+                'icon' => $gateway->get_icon(),
+                'method_title' => $gateway->get_method_title()
+            ];
+        }
+    }
+    
+    if (empty($methods)) {
+        wp_send_json_error(['message' => 'No payment methods are currently enabled. Please enable Razorpay or other payment gateways in WooCommerce > Settings > Payments.']);
+        return;
+    }
+    
+    wp_send_json_success(['methods' => $methods]);
+}
+
+/**
  * AJAX: Create Order and Get Payment Form
  */
 add_action('wp_ajax_cip_create_payment_order', 'cip_ajax_create_payment_order');
@@ -79,14 +127,30 @@ function cip_ajax_create_payment_order() {
     $product_id = get_option('cip_woo_product_' . $plan_index);
     
     if (!$product_id) {
-        wp_send_json_error(['message' => 'Product not found']);
+        wp_send_json_error(['message' => 'Product not found. Please contact support.']);
         return;
     }
     
     $product = wc_get_product($product_id);
     
     if (!$product) {
-        wp_send_json_error(['message' => 'Invalid product']);
+        wp_send_json_error(['message' => 'Invalid product. Please contact support.']);
+        return;
+    }
+    
+    // Verify payment gateway is available
+    $gateways = WC()->payment_gateways->get_available_payment_gateways();
+    
+    if (!isset($gateways[$payment_method])) {
+        wp_send_json_error(['message' => 'Selected payment method is not available: ' . $payment_method]);
+        return;
+    }
+    
+    $gateway = $gateways[$payment_method];
+    
+    // Check if gateway is enabled
+    if ($gateway->enabled !== 'yes') {
+        wp_send_json_error(['message' => 'Payment method is not enabled. Please contact support.']);
         return;
     }
     
@@ -107,6 +171,16 @@ function cip_ajax_create_payment_order() {
     }
     
     try {
+        // Clear cart first
+        WC()->cart->empty_cart();
+        
+        // Add product to cart
+        $cart_item_key = WC()->cart->add_to_cart($product_id, 1);
+        
+        if (!$cart_item_key) {
+            throw new Exception('Failed to add product to cart');
+        }
+        
         // Create order programmatically
         $order = wc_create_order([
             'customer_id' => $user->ID,
@@ -132,6 +206,7 @@ function cip_ajax_create_payment_order() {
         
         // Set payment method
         $order->set_payment_method($payment_method);
+        $order->set_payment_method_title($gateway->get_title());
         
         // Add order meta
         $order->update_meta_data('_cip_plan_index', $plan_index);
@@ -140,28 +215,28 @@ function cip_ajax_create_payment_order() {
         
         $order->save();
         
-        // Get payment gateway
-        $gateways = WC()->payment_gateways->get_available_payment_gateways();
+        // Set order as pending payment
+        $order->update_status('pending', 'Order created via CleanIndex');
         
-        if (!isset($gateways[$payment_method])) {
-            throw new Exception('Payment method not available');
-        }
-        
-        $gateway = $gateways[$payment_method];
-        
-        // Process payment
+        // Process payment using the gateway
         $result = $gateway->process_payment($order->get_id());
         
         if (isset($result['result']) && $result['result'] === 'success') {
+            // Clear cart after successful order creation
+            WC()->cart->empty_cart();
+            
             wp_send_json_success([
                 'redirect' => $result['redirect'],
                 'order_id' => $order->get_id()
             ]);
         } else {
-            throw new Exception('Payment processing failed');
+            // Payment processing failed
+            $order->update_status('failed', 'Payment processing failed');
+            throw new Exception('Payment processing failed. Please try again.');
         }
         
     } catch (Exception $e) {
+        error_log('CleanIndex Payment Error: ' . $e->getMessage());
         wp_send_json_error(['message' => $e->getMessage()]);
     }
 }
@@ -286,7 +361,7 @@ function cip_handle_woo_order_completed($order_id) {
 }
 
 /**
- * Get Available Payment Methods
+ * Get Available Payment Methods (Helper)
  */
 function cip_get_available_payment_methods() {
     if (!class_exists('WooCommerce')) {
@@ -297,7 +372,7 @@ function cip_get_available_payment_methods() {
     $methods = [];
     
     foreach ($gateways as $gateway_id => $gateway) {
-        if ($gateway->is_available()) {
+        if ($gateway->is_available() && $gateway->enabled === 'yes') {
             $methods[] = [
                 'id' => $gateway_id,
                 'title' => $gateway->get_title(),
@@ -308,21 +383,4 @@ function cip_get_available_payment_methods() {
     }
     
     return $methods;
-}
-
-/**
- * AJAX: Get Payment Methods
- */
-add_action('wp_ajax_cip_get_payment_methods', 'cip_ajax_get_payment_methods');
-
-function cip_ajax_get_payment_methods() {
-    check_ajax_referer('cip_payment_direct', 'nonce');
-    
-    $methods = cip_get_available_payment_methods();
-    
-    if (empty($methods)) {
-        wp_send_json_error(['message' => 'No payment methods available']);
-    } else {
-        wp_send_json_success(['methods' => $methods]);
-    }
 }
