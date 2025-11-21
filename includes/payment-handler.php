@@ -1,17 +1,31 @@
 <?php
 /**
- * Fixed WooCommerce Integration (REQUIREMENT #6)
- * ADD to includes/payment-handler.php or REPLACE existing functions
+ * Direct WooCommerce Payment Integration (No Cart/Checkout)
+ * REPLACE: includes/payment-handler.php
  */
 
 if (!defined('ABSPATH')) exit;
 
 /**
- * Create/Update WooCommerce Products for Pricing Plans
+ * Initialize WooCommerce Payment Gateway Support
  */
-function cip_sync_woocommerce_products() {
+add_action('init', 'cip_init_woo_payment');
+
+function cip_init_woo_payment() {
     if (!class_exists('WooCommerce')) {
-        return new WP_Error('woocommerce_missing', 'WooCommerce is not installed');
+        return;
+    }
+    
+    // Make sure products exist
+    cip_ensure_products_exist();
+}
+
+/**
+ * Ensure WooCommerce products exist for each plan
+ */
+function cip_ensure_products_exist() {
+    if (!class_exists('WooCommerce')) {
+        return;
     }
     
     $pricing_plans = get_option('cip_pricing_plans', []);
@@ -19,56 +33,34 @@ function cip_sync_woocommerce_products() {
     foreach ($pricing_plans as $index => $plan) {
         $product_id = get_option('cip_woo_product_' . $index);
         
-        if ($product_id && get_post_status($product_id) === 'publish') {
-            // Update existing product
-            $product = wc_get_product($product_id);
-        } else {
-            // Create new product
+        // Check if product exists
+        if (!$product_id || get_post_status($product_id) !== 'publish') {
+            // Create product
             $product = new WC_Product_Simple();
-        }
-        
-        $product->set_name('CleanIndex ' . $plan['name'] . ' Plan');
-        $product->set_regular_price($plan['price']);
-        $product->set_description('CleanIndex ESG Certification - ' . $plan['name'] . ' Plan');
-        
-        // Parse features
-        $features = is_array($plan['features']) ? $plan['features'] : explode("\n", $plan['features']);
-        $features_html = '<ul>';
-        foreach ($features as $feature) {
-            if (trim($feature)) {
-                $features_html .= '<li>' . esc_html(trim($feature)) . '</li>';
-            }
-        }
-        $features_html .= '</ul>';
-        
-        $product->set_short_description($features_html);
-        $product->set_catalog_visibility('hidden');
-        $product->set_virtual(true);
-        $product->set_sold_individually(true);
-        $product->set_manage_stock(false);
-        
-        // Save meta data
-        $product->update_meta_data('_cip_plan_index', $index);
-        $product->update_meta_data('_cip_plan_name', $plan['name']);
-        $product->update_meta_data('_cip_plan_currency', $plan['currency']);
-        
-        $new_product_id = $product->save();
-        
-        if (!$product_id) {
-            update_option('cip_woo_product_' . $index, $new_product_id);
+            $product->set_name('CleanIndex ' . $plan['name'] . ' Plan');
+            $product->set_regular_price($plan['price']);
+            $product->set_description('ESG Certification - ' . $plan['name'] . ' Plan');
+            $product->set_virtual(true);
+            $product->set_sold_individually(true);
+            $product->set_catalog_visibility('hidden');
+            
+            // Save meta
+            $product->update_meta_data('_cip_plan_index', $index);
+            $product->update_meta_data('_cip_plan_name', $plan['name']);
+            
+            $product_id = $product->save();
+            update_option('cip_woo_product_' . $index, $product_id);
         }
     }
-    
-    return true;
 }
 
 /**
- * AJAX Handler: Add to Cart and Get Checkout URL (REQUIREMENT #6 FIX)
+ * AJAX: Create Order and Get Payment Form
  */
-add_action('wp_ajax_cip_add_to_cart', 'cip_ajax_add_to_cart');
+add_action('wp_ajax_cip_create_payment_order', 'cip_ajax_create_payment_order');
 
-function cip_ajax_add_to_cart() {
-    check_ajax_referer('cip_checkout', 'nonce');
+function cip_ajax_create_payment_order() {
+    check_ajax_referer('cip_payment_direct', 'nonce');
     
     if (!is_user_logged_in()) {
         wp_send_json_error(['message' => 'Please login first']);
@@ -81,171 +73,212 @@ function cip_ajax_add_to_cart() {
     }
     
     $plan_index = intval($_POST['plan_index']);
+    $payment_method = sanitize_text_field($_POST['payment_method']);
+    
+    // Get product
     $product_id = get_option('cip_woo_product_' . $plan_index);
     
-    if (!$product_id || get_post_status($product_id) !== 'publish') {
-        // Try to sync products
-        cip_sync_woocommerce_products();
-        $product_id = get_option('cip_woo_product_' . $plan_index);
-        
-        if (!$product_id) {
-            wp_send_json_error(['message' => 'Product not found. Please contact support.']);
-            return;
-        }
+    if (!$product_id) {
+        wp_send_json_error(['message' => 'Product not found']);
+        return;
     }
     
-    // Clear cart
-    WC()->cart->empty_cart();
+    $product = wc_get_product($product_id);
     
-    // Add to cart
-    $cart_item_key = WC()->cart->add_to_cart($product_id, 1);
-    
-    if ($cart_item_key) {
-        // Store plan selection in user meta
-        update_user_meta(get_current_user_id(), 'cip_selected_plan_index', $plan_index);
-        
-        wp_send_json_success([
-            'message' => 'Plan added to cart',
-            'checkout_url' => wc_get_checkout_url()
-        ]);
-    } else {
-        wp_send_json_error(['message' => 'Failed to add to cart']);
-    }
-}
-
-/**
- * Enhanced Pricing Page with AJAX (UPDATE pages/pricing.php)
- */
-function cip_render_pricing_page() {
-    ?>
-    <script>
-    function selectPlan(planIndex) {
-        if (!confirm('Add this plan to cart and proceed to checkout?')) {
-            return;
-        }
-        
-        const button = event.target;
-        button.disabled = true;
-        button.textContent = '⏳ Processing...';
-        
-        fetch('<?php echo admin_url('admin-ajax.php'); ?>', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-            body: new URLSearchParams({
-                action: 'cip_add_to_cart',
-                nonce: '<?php echo wp_create_nonce('cip_checkout'); ?>',
-                plan_index: planIndex
-            })
-        })
-        .then(r => r.json())
-        .then(data => {
-            if (data.success) {
-                window.location.href = data.data.checkout_url;
-            } else {
-                alert('Error: ' + (data.data.message || 'Failed to add to cart'));
-                button.disabled = false;
-                button.textContent = 'Select Plan';
-            }
-        })
-        .catch(err => {
-            alert('Error: ' + err.message);
-            button.disabled = false;
-            button.textContent = 'Select Plan';
-        });
-    }
-    </script>
-    <?php
-}
-
-/**
- * Handle WooCommerce Order Completion
- */
-add_action('woocommerce_order_status_completed', 'cip_handle_order_completion');
-
-function cip_handle_order_completion($order_id) {
-    $order = wc_get_order($order_id);
-    if (!$order) return;
-    
-    $user_id = $order->get_user_id();
-    if (!$user_id) return;
-    
-    // Check if CleanIndex order
-    $is_cip_order = false;
-    $plan_name = '';
-    
-    foreach ($order->get_items() as $item) {
-        $product = $item->get_product();
-        if ($product) {
-            $plan_index = $product->get_meta('_cip_plan_index');
-            if ($plan_index !== '') {
-                $is_cip_order = true;
-                $plan_name = $product->get_meta('_cip_plan_name');
-                break;
-            }
-        }
+    if (!$product) {
+        wp_send_json_error(['message' => 'Invalid product']);
+        return;
     }
     
-    if (!$is_cip_order) return;
+    // Get current user
+    $user = wp_get_current_user();
     
-    // Activate subscription
-    update_user_meta($user_id, 'cip_subscription_status', 'active');
-    update_user_meta($user_id, 'cip_subscription_plan', $plan_name);
-    update_user_meta($user_id, 'cip_subscription_start', current_time('mysql'));
-    update_user_meta($user_id, 'cip_woo_order_id', $order_id);
-    
-    // Create notification
-    cip_create_notification(
-        $user_id,
-        'Subscription Activated',
-        'Your ' . $plan_name . ' subscription is now active. You can now generate your certificate.',
-        'success',
-        home_url('/cleanindex/dashboard')
-    );
-    
-    // Send notification email
-    $user = get_userdata($user_id);
-    cip_send_notification_email(
-        $user->user_email,
-        'Subscription Activated - CleanIndex',
-        'Your ' . $plan_name . ' subscription is now active. You can now generate your ESG certificate from your dashboard.',
-        'success'
-    );
-    
-    // Auto-generate certificate if assessment is complete
+    // Get registration data
     global $wpdb;
-    $table_registrations = $wpdb->prefix . 'company_registrations';
+    $table = $wpdb->prefix . 'company_registrations';
     $registration = $wpdb->get_row($wpdb->prepare(
-        "SELECT * FROM $table_registrations WHERE email = %s",
+        "SELECT * FROM $table WHERE email = %s",
         $user->user_email
     ), ARRAY_A);
     
-    if ($registration) {
+    if (!$registration) {
+        wp_send_json_error(['message' => 'Registration not found']);
+        return;
+    }
+    
+    try {
+        // Create order programmatically
+        $order = wc_create_order([
+            'customer_id' => $user->ID,
+            'customer_note' => 'CleanIndex Subscription',
+            'created_via' => 'cleanindex'
+        ]);
+        
+        if (is_wp_error($order)) {
+            throw new Exception($order->get_error_message());
+        }
+        
+        // Add product to order
+        $order->add_product($product, 1);
+        
+        // Set billing details
+        $order->set_billing_first_name($registration['employee_name']);
+        $order->set_billing_email($registration['email']);
+        $order->set_billing_company($registration['company_name']);
+        $order->set_billing_country($registration['country']);
+        
+        // Calculate totals
+        $order->calculate_totals();
+        
+        // Set payment method
+        $order->set_payment_method($payment_method);
+        
+        // Add order meta
+        $order->update_meta_data('_cip_plan_index', $plan_index);
+        $order->update_meta_data('_cip_user_id', $user->ID);
+        $order->update_meta_data('_cip_registration_id', $registration['id']);
+        
+        $order->save();
+        
+        // Get payment gateway
+        $gateways = WC()->payment_gateways->get_available_payment_gateways();
+        
+        if (!isset($gateways[$payment_method])) {
+            throw new Exception('Payment method not available');
+        }
+        
+        $gateway = $gateways[$payment_method];
+        
+        // Process payment
+        $result = $gateway->process_payment($order->get_id());
+        
+        if (isset($result['result']) && $result['result'] === 'success') {
+            wp_send_json_success([
+                'redirect' => $result['redirect'],
+                'order_id' => $order->get_id()
+            ]);
+        } else {
+            throw new Exception('Payment processing failed');
+        }
+        
+    } catch (Exception $e) {
+        wp_send_json_error(['message' => $e->getMessage()]);
+    }
+}
+
+/**
+ * Handle Order Completion
+ */
+add_action('woocommerce_order_status_completed', 'cip_handle_woo_order_completed');
+add_action('woocommerce_payment_complete', 'cip_handle_woo_order_completed');
+
+function cip_handle_woo_order_completed($order_id) {
+    $order = wc_get_order($order_id);
+    
+    if (!$order) {
+        return;
+    }
+    
+    // Check if it's a CleanIndex order
+    $plan_index = $order->get_meta('_cip_plan_index');
+    $user_id = $order->get_meta('_cip_user_id');
+    $registration_id = $order->get_meta('_cip_registration_id');
+    
+    if ($plan_index === '' || !$user_id) {
+        return;
+    }
+    
+    // Check if already processed
+    if ($order->get_meta('_cip_subscription_activated')) {
+        return;
+    }
+    
+    // Get plan details
+    $pricing_plans = get_option('cip_pricing_plans', []);
+    
+    if (!isset($pricing_plans[$plan_index])) {
+        return;
+    }
+    
+    $plan = $pricing_plans[$plan_index];
+    
+    // Activate subscription
+    $validity_years = get_option('cip_cert_validity_years', 1);
+    $end_date = date('Y-m-d H:i:s', strtotime("+{$validity_years} year"));
+    
+    update_user_meta($user_id, 'cip_subscription_status', 'active');
+    update_user_meta($user_id, 'cip_subscription_plan', $plan['name']);
+    update_user_meta($user_id, 'cip_subscription_start', current_time('mysql'));
+    update_user_meta($user_id, 'cip_subscription_end', $end_date);
+    update_user_meta($user_id, 'cip_woo_order_id', $order_id);
+    
+    // Create subscription record
+    global $wpdb;
+    $wpdb->insert(
+        $wpdb->prefix . 'cip_subscriptions',
+        [
+            'user_id' => $user_id,
+            'company_id' => $registration_id,
+            'plan_name' => $plan['name'],
+            'plan_price' => $plan['price'],
+            'currency' => $plan['currency'],
+            'status' => 'active',
+            'payment_method' => $order->get_payment_method(),
+            'transaction_id' => $order->get_transaction_id(),
+            'end_date' => $end_date
+        ]
+    );
+    
+    // Mark order as processed
+    $order->update_meta_data('_cip_subscription_activated', true);
+    $order->save();
+    
+    // Send notification
+    if (function_exists('cip_create_notification')) {
+        cip_create_notification(
+            $user_id,
+            'Subscription Activated',
+            'Your ' . $plan['name'] . ' subscription is now active!',
+            'success',
+            home_url('/cleanindex/dashboard')
+        );
+    }
+    
+    // Auto-generate certificate if assessment complete
+    if ($registration_id && class_exists('CIP_PDF_Generator')) {
         $table_assessments = $wpdb->prefix . 'company_assessments';
         $assessment = $wpdb->get_row($wpdb->prepare(
             "SELECT * FROM $table_assessments WHERE user_id = %d AND progress >= 5",
-            $registration['id']
+            $registration_id
         ), ARRAY_A);
         
-        if ($assessment && class_exists('CIP_PDF_Generator')) {
+        if ($assessment) {
             $cert_mode = get_option('cip_cert_grading_mode', 'automatic');
             
             if ($cert_mode === 'automatic') {
                 $assessment_data = json_decode($assessment['assessment_json'], true);
                 $grade = CIP_PDF_Generator::calculate_grade($assessment_data);
-                $result = CIP_PDF_Generator::generate_certificate_pdf($registration['id'], $grade);
+                $result = CIP_PDF_Generator::generate_certificate_pdf($registration_id, $grade);
                 
                 if ($result['success']) {
                     // Send certificate email
-                    cip_send_certificate_email($user->user_email, $registration['company_name'], $grade, $result['url']);
+                    $user = get_userdata($user_id);
+                    wp_mail(
+                        $user->user_email,
+                        'Your ESG Certificate - CleanIndex',
+                        "Congratulations! Your ESG certificate (Grade: {$grade}) has been generated.\n\nView it at: " . home_url('/cleanindex/certificate')
+                    );
                     
                     // Create notification
-                    cip_create_notification(
-                        $user_id,
-                        'Certificate Generated',
-                        'Your ESG certificate has been generated with grade: ' . $grade,
-                        'success',
-                        home_url('/cleanindex/certificate')
-                    );
+                    if (function_exists('cip_create_notification')) {
+                        cip_create_notification(
+                            $user_id,
+                            'Certificate Generated',
+                            'Your ' . $grade . ' certificate is ready!',
+                            'success',
+                            home_url('/cleanindex/certificate')
+                        );
+                    }
                 }
             }
         }
@@ -253,41 +286,43 @@ function cip_handle_order_completion($order_id) {
 }
 
 /**
- * Send certificate email
+ * Get Available Payment Methods
  */
-function cip_send_certificate_email($email, $company_name, $grade, $certificate_url) {
-    $subject = 'Your ESG Certificate is Ready! - CleanIndex';
+function cip_get_available_payment_methods() {
+    if (!class_exists('WooCommerce')) {
+        return [];
+    }
     
-    $message = '
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <style>
-            body { font-family: Inter, sans-serif; background: #FAFAFA; margin: 0; padding: 20px; }
-            .container { max-width: 600px; margin: 0 auto; background: white; padding: 32px; border-radius: 12px; }
-            h1 { color: #4CAF50; font-family: Raleway, sans-serif; font-size: 24px; margin-bottom: 16px; }
-            .grade { background: #4CAF50; color: white; padding: 16px 32px; border-radius: 50px; font-size: 32px; font-weight: bold; display: inline-block; margin: 20px 0; }
-            .button { display: inline-block; padding: 14px 28px; background: #4CAF50; color: white; text-decoration: none; border-radius: 8px; font-weight: 500; font-size: 14px; margin: 16px 8px; }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <h1>🏆 Your ESG Certificate is Ready!</h1>
-            <p>Dear ' . esc_html($company_name) . ',</p>
-            <p>Congratulations! Your ESG certification has been completed.</p>
-            <div style="text-align: center;">
-                <div class="grade">' . esc_html($grade) . '</div>
-            </div>
-            <p style="text-align: center;">
-                <a href="' . esc_url($certificate_url) . '" class="button">Download Certificate</a>
-            </p>
-        </div>
-    </body>
-    </html>
-    ';
+    $gateways = WC()->payment_gateways->get_available_payment_gateways();
+    $methods = [];
     
-    return wp_mail($email, $subject, $message, ['Content-Type: text/html; charset=UTF-8']);
+    foreach ($gateways as $gateway_id => $gateway) {
+        if ($gateway->is_available()) {
+            $methods[] = [
+                'id' => $gateway_id,
+                'title' => $gateway->get_title(),
+                'description' => $gateway->get_description(),
+                'icon' => $gateway->get_icon()
+            ];
+        }
+    }
+    
+    return $methods;
 }
 
-// Run sync on activation
-register_activation_hook(CIP_PLUGIN_FILE, 'cip_sync_woocommerce_products');
+/**
+ * AJAX: Get Payment Methods
+ */
+add_action('wp_ajax_cip_get_payment_methods', 'cip_ajax_get_payment_methods');
+
+function cip_ajax_get_payment_methods() {
+    check_ajax_referer('cip_payment_direct', 'nonce');
+    
+    $methods = cip_get_available_payment_methods();
+    
+    if (empty($methods)) {
+        wp_send_json_error(['message' => 'No payment methods available']);
+    } else {
+        wp_send_json_success(['methods' => $methods]);
+    }
+}
