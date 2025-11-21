@@ -157,7 +157,7 @@ function cip_activate_plugin() {
         dbDelta($sql_assessments);
         error_log("CleanIndex Portal: Created assessments table");
 
-           // ADD THIS: Create subscriptions table
+        // ADD THIS: Create subscriptions table
         $subscriptions_table = $wpdb->prefix . 'cip_subscriptions';
         
         $sql_subscriptions = "CREATE TABLE IF NOT EXISTS $subscriptions_table (
@@ -182,7 +182,6 @@ function cip_activate_plugin() {
             INDEX idx_end_date (end_date)
         ) $charset_collate;";
         
-        require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
         dbDelta($sql_subscriptions);
 
         if (!get_option('cip_assessment_questions')) {
@@ -338,7 +337,6 @@ function cip_deactivate_plugin() {
     // Flush rewrite rules
     flush_rewrite_rules();
     
-    
     // Clean up transients
     delete_transient('cip_activation_redirect');
     delete_transient('cip_flush_rewrite_rules_flag');
@@ -366,6 +364,11 @@ function cip_activation_redirect() {
     }
 }
 
+/**
+ * ========================================
+ * SAVE SETTINGS
+ * ========================================
+ */
 add_action('admin_init', 'cip_save_enhanced_settings');
 
 function cip_save_enhanced_settings() {
@@ -378,6 +381,22 @@ function cip_save_enhanced_settings() {
     }
     
     check_admin_referer('cip_settings_action', 'cip_settings_nonce');
+    
+    // Save general settings
+    if (isset($_POST['company_name'])) {
+        update_option('cip_company_name', sanitize_text_field($_POST['company_name']));
+    }
+    if (isset($_POST['admin_email'])) {
+        update_option('cip_admin_email', sanitize_email($_POST['admin_email']));
+    }
+    update_option('cip_enable_registration', isset($_POST['enable_registration']) ? '1' : '0');
+    
+    if (isset($_POST['max_file_size'])) {
+        update_option('cip_max_file_size', intval($_POST['max_file_size']));
+    }
+    if (isset($_POST['allowed_file_types'])) {
+        update_option('cip_allowed_file_types', sanitize_text_field($_POST['allowed_file_types']));
+    }
     
     // Email template settings
     $email_fields = [
@@ -404,6 +423,47 @@ function cip_save_enhanced_settings() {
             update_option($option_key, $value);
         }
     }
+    
+    // Save pricing plans
+    if (isset($_POST['pricing_plans'])) {
+        $pricing_plans = [];
+        foreach ($_POST['pricing_plans'] as $plan) {
+            $pricing_plans[] = [
+                'name' => sanitize_text_field($plan['name']),
+                'price' => sanitize_text_field($plan['price']),
+                'currency' => sanitize_text_field($plan['currency']),
+                'features' => sanitize_textarea_field($plan['features']),
+                'popular' => !empty($plan['popular'])
+            ];
+        }
+        update_option('cip_pricing_plans', $pricing_plans);
+        
+        // Trigger WooCommerce product creation/update
+        if (function_exists('cip_update_woocommerce_products')) {
+            cip_update_woocommerce_products([], $pricing_plans);
+        }
+    }
+    
+    // Save certificate settings
+    if (isset($_POST['cert_grading_mode'])) {
+        update_option('cip_cert_grading_mode', sanitize_text_field($_POST['cert_grading_mode']));
+    }
+    if (isset($_POST['cert_grade_esg3'])) {
+        update_option('cip_cert_grade_esg3', intval($_POST['cert_grade_esg3']));
+    }
+    if (isset($_POST['cert_grade_esg2'])) {
+        update_option('cip_cert_grade_esg2', intval($_POST['cert_grade_esg2']));
+    }
+    if (isset($_POST['cert_grade_esg1'])) {
+        update_option('cip_cert_grade_esg1', intval($_POST['cert_grade_esg1']));
+    }
+    if (isset($_POST['cert_validity_years'])) {
+        update_option('cip_cert_validity_years', intval($_POST['cert_validity_years']));
+    }
+    
+    // Redirect with success message
+    wp_redirect(add_query_arg('settings-updated', 'true', wp_get_referer()));
+    exit;
 }
 
 /**
@@ -491,7 +551,7 @@ function cip_enqueue_assets() {
 
 /**
  * ========================================
- * URL REWRITE RULES (UPDATED)
+ * URL REWRITE RULES
  * ========================================
  */
 add_action('init', 'cip_add_rewrite_rules');
@@ -504,8 +564,8 @@ function cip_add_rewrite_rules() {
         'dashboard',
         'assessment',
         'manager',
-        'manager-register',      // NEW
-        'manager-login',         // NEW
+        'manager-register',
+        'manager-login',
         'admin-portal',
         'reset-password',
         'pricing',
@@ -548,7 +608,7 @@ function cip_query_vars($vars) {
 
 /**
  * ========================================
- * TEMPLATE REDIRECT (UPDATED)
+ * TEMPLATE REDIRECT
  * ========================================
  */
 add_action('template_redirect', 'cip_template_redirect');
@@ -576,15 +636,15 @@ function cip_template_redirect() {
         exit;
     }
     
-    // Define template map (UPDATED)
+    // Define template map
     $template_map = [
         'register' => 'pages/register.php',
         'login' => 'pages/login.php',
         'dashboard' => 'pages/user-dashboard.php',
         'assessment' => 'pages/assessment.php',
-        'manager' => 'pages/manager-dashboard-fixed.php',  // UPDATED - use fixed version
-        'manager-register' => 'pages/manager-register.php', // NEW
-        'manager-login' => 'pages/manager-login.php',       // NEW
+        'manager' => 'pages/manager-dashboard-fixed.php',
+        'manager-register' => 'pages/manager-register.php',
+        'manager-login' => 'pages/manager-login.php',
         'admin-portal' => 'pages/admin-dashboard.php',
         'pricing' => 'pages/pricing.php',
         'checkout' => 'pages/checkout.php',
@@ -947,82 +1007,6 @@ function cip_ajax_admin_action() {
 
 /**
  * ========================================
- * SAVE SETTINGS
- * ========================================
- */
-add_action('admin_init', 'cip_save_settings_enhanced');
-
-function cip_save_settings_enhanced() {
-    if (!isset($_POST['cip_settings_submit'])) {
-        return;
-    }
-    
-    if (!current_user_can('manage_options')) {
-        return;
-    }
-    
-    check_admin_referer('cip_settings_action', 'cip_settings_nonce');
-    
-    // Save general settings
-    if (isset($_POST['company_name'])) {
-        update_option('cip_company_name', sanitize_text_field($_POST['company_name']));
-    }
-    if (isset($_POST['admin_email'])) {
-        update_option('cip_admin_email', sanitize_email($_POST['admin_email']));
-    }
-    update_option('cip_enable_registration', isset($_POST['enable_registration']) ? '1' : '0');
-    
-    if (isset($_POST['max_file_size'])) {
-        update_option('cip_max_file_size', intval($_POST['max_file_size']));
-    }
-    if (isset($_POST['allowed_file_types'])) {
-        update_option('cip_allowed_file_types', sanitize_text_field($_POST['allowed_file_types']));
-    }
-    
-    // Save pricing plans
-    if (isset($_POST['pricing_plans'])) {
-        $pricing_plans = [];
-        foreach ($_POST['pricing_plans'] as $plan) {
-            $pricing_plans[] = [
-                'name' => sanitize_text_field($plan['name']),
-                'price' => sanitize_text_field($plan['price']),
-                'currency' => sanitize_text_field($plan['currency']),
-                'features' => sanitize_textarea_field($plan['features']),
-                'popular' => !empty($plan['popular'])
-            ];
-        }
-        update_option('cip_pricing_plans', $pricing_plans);
-        
-        // Trigger WooCommerce product creation/update
-        if (function_exists('cip_update_woocommerce_products')) {
-            cip_update_woocommerce_products([], $pricing_plans);
-        }
-    }
-    
-    // Save certificate settings
-    if (isset($_POST['cert_grading_mode'])) {
-        update_option('cip_cert_grading_mode', sanitize_text_field($_POST['cert_grading_mode']));
-    }
-    if (isset($_POST['cert_grade_esg3'])) {
-        update_option('cip_cert_grade_esg3', intval($_POST['cert_grade_esg3']));
-    }
-    if (isset($_POST['cert_grade_esg2'])) {
-        update_option('cip_cert_grade_esg2', intval($_POST['cert_grade_esg2']));
-    }
-    if (isset($_POST['cert_grade_esg1'])) {
-        update_option('cip_cert_grade_esg1', intval($_POST['cert_grade_esg1']));
-    }
-    if (isset($_POST['cert_validity_years'])) {
-        update_option('cip_cert_validity_years', intval($_POST['cert_validity_years']));
-    }
-    
-    // Redirect with success message
-    wp_redirect(add_query_arg('settings-updated', 'true', wp_get_referer()));
-    exit;
-}
-
-/**
- * ========================================
  * ADMIN MENU
  * ========================================
  */
@@ -1048,6 +1032,21 @@ function cip_admin_menu() {
         'manage_options',
         'cleanindex-portal',
         'cip_admin_settings_page'
+    );
+    
+    // Questions Manager
+    add_submenu_page(
+        'cleanindex-portal',
+        __('Assessment Questions', 'cleanindex-portal'),
+        __('Questions', 'cleanindex-portal'),
+        'manage_options',
+        'cleanindex-questions',
+        function() {
+            if (!current_user_can('manage_options')) {
+                wp_die('Access denied');
+            }
+            include CIP_PLUGIN_DIR . 'admin/questions-manager-enhanced.php';
+        }
     );
     
     // Submissions submenu
@@ -1185,9 +1184,9 @@ function cip_admin_system_page() {
         'pages/login.php',
         'pages/user-dashboard.php',
         'pages/assessment.php',
-        'pages/manager-dashboard-fixed.php', // UPDATED
-        'pages/manager-register.php',         // NEW
-        'pages/manager-login.php',           // NEW
+        'pages/manager-dashboard-fixed.php',
+        'pages/manager-register.php',
+        'pages/manager-login.php',
         'pages/admin-dashboard.php',
         'pages/pricing.php',
         'pages/checkout.php',
@@ -1209,6 +1208,67 @@ function cip_admin_system_page() {
     
     // Include the system info page template
     include CIP_PLUGIN_DIR . 'admin/system-info-page.php';
+}
+
+/**
+ * ========================================
+ * HELPER FUNCTIONS
+ * ========================================
+ */
+
+/**
+ * Get default assessment questions
+ */
+function cip_get_default_questions() {
+    return [
+        1 => [
+            'title' => 'General Requirements & Materiality Analysis',
+            'questions' => [
+                'q1_1' => 'What sustainability impacts, risks, and opportunities (IROs) does your company have?',
+                'q1_2' => 'How have you engaged stakeholders in identifying material topics?',
+                'q1_3' => 'What are the boundaries of your reporting?',
+                'q1_4' => 'Have you conducted a step-by-step materiality analysis?',
+                'q1_5' => 'Which ESRS standards are material for you?'
+            ]
+        ],
+        2 => [
+            'title' => 'Company Profile & Governance',
+            'questions' => [
+                'q2_1' => 'What is your business model?',
+                'q2_2' => 'How do sustainability factors integrate?',
+                'q2_3' => 'How is your board involved in managing sustainability?',
+                'q2_4' => 'What due diligence processes do you have?',
+                'q2_5' => 'Which compensation structures are linked to sustainability?'
+            ]
+        ]
+    ];
+}
+
+/**
+ * Send custom email
+ */
+function cip_send_custom_email($to, $type, $variables = []) {
+    $subject_option = 'cip_email_' . $type . '_subject';
+    $body_option = 'cip_email_' . $type . '_body';
+    
+    $subject = get_option($subject_option, 'Message from CleanIndex');
+    $body = get_option($body_option, 'Hello');
+    
+    // Replace variables
+    foreach ($variables as $key => $value) {
+        $body = str_replace('{{' . $key . '}}', $value, $body);
+        $subject = str_replace('{{' . $key . '}}', $value, $subject);
+    }
+    
+    $from_name = get_option('cip_email_from_name', 'CleanIndex');
+    $from_email = get_option('cip_email_from_address', get_option('admin_email'));
+    
+    $headers = [
+        'From: ' . $from_name . ' <' . $from_email . '>',
+        'Content-Type: text/html; charset=UTF-8'
+    ];
+    
+    return wp_mail($to, $subject, $body, $headers);
 }
 
 /**
@@ -1253,6 +1313,7 @@ if (!function_exists('cip_uninstall')) {
             // Drop tables
             $wpdb->query("DROP TABLE IF EXISTS {$wpdb->prefix}company_registrations");
             $wpdb->query("DROP TABLE IF EXISTS {$wpdb->prefix}company_assessments");
+            $wpdb->query("DROP TABLE IF EXISTS {$wpdb->prefix}cip_subscriptions");
             
             // Delete options
             delete_option('cip_enable_registration');
@@ -1271,120 +1332,11 @@ if (!function_exists('cip_uninstall')) {
             delete_option('cip_paypal_secret');
             delete_option('cip_paypal_sandbox');
             delete_option('cip_payment_currency');
-            delete_option('cip_manager_access_code'); // NEW
+            delete_option('cip_manager_access_code');
+            delete_option('cip_assessment_questions');
             delete_option('cip_remove_data_on_uninstall');
         }
     }
-function cip_send_custom_email($to, $type, $variables = []) {
-    $subject_option = 'cip_email_' . $type . '_subject';
-    $body_option = 'cip_email_' . $type . '_body';
-    
-    $subject = get_option($subject_option, 'Message from CleanIndex');
-    $body = get_option($body_option, 'Hello');
-    
-    // Replace variables
-    foreach ($variables as $key => $value) {
-        $body = str_replace('{{' . $key . '}}', $value, $body);
-        $subject = str_replace('{{' . $key . '}}', $value, $subject);
-    }
-    
-    $from_name = get_option('cip_email_from_name', 'CleanIndex');
-    $from_email = get_option('cip_email_from_address', get_option('admin_email'));
-    
-    $headers = [
-        'From: ' . $from_name . ' <' . $from_email . '>',
-        'Content-Type: text/html; charset=UTF-8'
-    ];
-    
-    return wp_mail($to, $subject, $body, $headers);
 }
-
-add_action('admin_menu', 'cip_admin_menu_enhanced');
-
-function cip_admin_menu_enhanced() {
-    // Main menu page
-    add_menu_page(
-        __('CleanIndex Portal', 'cleanindex-portal'),
-        __('CleanIndex', 'cleanindex-portal'),
-        'manage_options',
-        'cleanindex-portal',
-        'cip_admin_settings_page',
-        'dashicons-shield-alt',
-        30
-    );
-    
-    // Settings submenu
-    add_submenu_page(
-        'cleanindex-portal',
-        __('Settings', 'cleanindex-portal'),
-        __('Settings', 'cleanindex-portal'),
-        'manage_options',
-        'cleanindex-portal',
-        'cip_admin_settings_page'
-    );
-    
-    // Questions Manager - NEW
-    add_submenu_page(
-        'cleanindex-portal',
-        __('Assessment Questions', 'cleanindex-portal'),
-        __('Questions', 'cleanindex-portal'),
-        'manage_options',
-        'cleanindex-questions',
-        function() {
-            if (!current_user_can('manage_options')) {
-                wp_die('Access denied');
-            }
-            include CIP_PLUGIN_DIR . 'admin/questions-manager-enhanced.php';
-        }
-    );
-    
-    // Submissions submenu
-    add_submenu_page(
-        'cleanindex-portal',
-        __('Submissions', 'cleanindex-portal'),
-        __('Submissions', 'cleanindex-portal'),
-        'manage_options',
-        'cleanindex-submissions',
-        'cip_admin_submissions_page'
-    );
-    
-    // System Info submenu
-    add_submenu_page(
-        'cleanindex-portal',
-        __('System Info', 'cleanindex-portal'),
-        __('System Info', 'cleanindex-portal'),
-        'manage_options',
-        'cleanindex-system',
-        'cip_admin_system_page'
-    );
-}
-
-function cip_get_default_questions() {
-    return [
-        1 => [
-            'title' => 'General Requirements & Materiality Analysis',
-            'questions' => [
-                'q1_1' => 'What sustainability impacts, risks, and opportunities (IROs) does your company have?',
-                'q1_2' => 'How have you engaged stakeholders in identifying material topics?',
-                'q1_3' => 'What are the boundaries of your reporting?',
-                'q1_4' => 'Have you conducted a step-by-step materiality analysis?',
-                'q1_5' => 'Which ESRS standards are material for you?'
-            ]
-        ],
-        2 => [
-            'title' => 'Company Profile & Governance',
-            'questions' => [
-                'q2_1' => 'What is your business model?',
-                'q2_2' => 'How do sustainability factors integrate?',
-                'q2_3' => 'How is your board involved in managing sustainability?',
-                'q2_4' => 'What due diligence processes do you have?',
-                'q2_5' => 'Which compensation structures are linked to sustainability?'
-            ]
-        ]
-    ];
-}
-
-}
-
 
 // End of file
