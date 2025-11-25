@@ -266,21 +266,21 @@ function cip_activate_plugin() {
                 [
                     'name' => 'Basic',
                     'price' => '499',
-                    'currency' => 'EUR',
+                    'currency' => 'INR',
                     'features' => "ESG Assessment\nBasic Certificate\nEmail Support\n1 Year Validity",
                     'popular' => false
                 ],
                 [
                     'name' => 'Professional',
                     'price' => '999',
-                    'currency' => 'EUR',
+                    'currency' => 'INR',
                     'features' => "ESG Assessment\nPremium Certificate\nPriority Support\n2 Years Validity\nBenchmarking Report\nDirectory Listing",
                     'popular' => true
                 ],
                 [
                     'name' => 'Enterprise',
                     'price' => '1999',
-                    'currency' => 'EUR',
+                    'currency' => 'INR',
                     'features' => "ESG Assessment\nPremium Certificate\nDedicated Support\n3 Years Validity\nDetailed Analytics\nFeatured Directory Listing\nCustom Reporting\nAPI Access",
                     'popular' => false
                 ]
@@ -324,6 +324,74 @@ function cip_activate_plugin() {
             'Activation Error'
         );
     }
+
+/**
+ * ADD THIS TO: cleanindex-portal.php
+ * Find the cip_activate_plugin() function and ADD this code at the end,
+ * right before the final error_log line.
+ */
+
+// ADD THIS SECTION TO cip_activate_plugin() function
+// Place it after the database tables are created
+
+// ============================================
+// ENSURE DEFAULT CURRENCY IS SET
+// ============================================
+$default_currency = get_option('cip_default_currency');
+
+if (empty($default_currency)) {
+    // Set default currency (change 'INR' to your preferred default)
+    $new_default = 'INR'; // Change this to: USD, EUR, GBP, INR, etc.
+    
+    update_option('cip_default_currency', $new_default);
+    
+    // Force write
+    global $wpdb;
+    $wpdb->query($wpdb->prepare(
+        "INSERT INTO {$wpdb->options} (option_name, option_value, autoload) 
+         VALUES ('cip_default_currency', %s, 'yes') 
+         ON DUPLICATE KEY UPDATE option_value = %s",
+        $new_default,
+        $new_default
+    ));
+    
+    error_log('CleanIndex Portal: Default currency set to ' . $new_default);
+}
+
+// Update pricing plans to use correct currency
+if (!get_option('cip_pricing_plans')) {
+    $default_currency = get_option('cip_default_currency', 'INR');
+    
+    update_option('cip_pricing_plans', [
+        [
+            'name' => 'Basic',
+            'price' => '499',
+            'currency' => $default_currency, // Use dynamic currency
+            'features' => "ESG Assessment\nBasic Certificate\nEmail Support\n1 Year Validity",
+            'popular' => false
+        ],
+        [
+            'name' => 'Professional',
+            'price' => '999',
+            'currency' => $default_currency, // Use dynamic currency
+            'features' => "ESG Assessment\nPremium Certificate\nPriority Support\n2 Years Validity\nBenchmarking Report\nDirectory Listing",
+            'popular' => true
+        ],
+        [
+            'name' => 'Enterprise',
+            'price' => '1999',
+            'currency' => $default_currency, // Use dynamic currency
+            'features' => "ESG Assessment\nPremium Certificate\nDedicated Support\n3 Years Validity\nDetailed Analytics\nFeatured Directory Listing\nCustom Reporting\nAPI Access",
+            'popular' => false
+        ]
+    ]);
+}
+
+// Clear cache to ensure fresh data
+wp_cache_flush();
+
+error_log('CleanIndex Portal: Plugin activated successfully (v' . CIP_VERSION . ') with currency: ' . get_option('cip_default_currency'));
+
 }
 
 /**

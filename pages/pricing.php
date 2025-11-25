@@ -1,6 +1,6 @@
 <?php
 /**
- * Pricing Page with Direct WooCommerce Payment
+ * FIXED: Pricing Page with Dynamic Currency Support
  * REPLACE: pages/pricing.php
  */
 
@@ -97,6 +97,9 @@ $woo_active = class_exists('WooCommerce');
             margin-bottom: 12px;
             cursor: pointer;
             transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 12px;
         }
         
         .payment-method:hover {
@@ -107,6 +110,12 @@ $woo_active = class_exists('WooCommerce');
         .payment-method.selected {
             border-color: #4CAF50;
             background: rgba(76, 175, 80, 0.1);
+        }
+        
+        .payment-method input[type="radio"] {
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
         }
     </style>
 </head>
@@ -141,8 +150,13 @@ $woo_active = class_exists('WooCommerce');
             
             <div class="pricing-grid">
                 <?php foreach ($pricing_plans as $index => $plan): ?>
-                    <div class="pricing-card <?php echo $plan['popular'] ? 'popular' : ''; ?>">
-                        <?php if ($plan['popular']): ?>
+                    <?php 
+                    // Get currency info
+                    $currency_code = isset($plan['currency']) ? $plan['currency'] : 'EUR';
+                    $currency_symbol = cip_get_currency_symbol($currency_code);
+                    ?>
+                    <div class="pricing-card <?php echo !empty($plan['popular']) ? 'popular' : ''; ?>">
+                        <?php if (!empty($plan['popular'])): ?>
                             <div class="popular-badge">⭐ Most Popular</div>
                         <?php endif; ?>
                         
@@ -151,7 +165,7 @@ $woo_active = class_exists('WooCommerce');
                         </h3>
                         
                         <div style="font-size: 48px; font-weight: 700; color: #4CAF50; margin: 24px 0;">
-                            <span style="font-size: 24px; vertical-align: super;">€</span>
+                            <span style="font-size: 24px; vertical-align: super;"><?php echo esc_html($currency_symbol); ?></span>
                             <?php echo esc_html($plan['price']); ?>
                             <span style="font-size: 14px; color: #6b7280; font-weight: 400;">/year</span>
                         </div>
@@ -174,11 +188,11 @@ $woo_active = class_exists('WooCommerce');
                         </ul>
                         
                         <button 
-                            onclick="selectPlan(<?php echo $index; ?>, '<?php echo esc_js($plan['name']); ?>', <?php echo esc_js($plan['price']); ?>)"
-                            class="btn <?php echo $plan['popular'] ? 'btn-primary' : 'btn-outline'; ?>"
+                            onclick="selectPlan(<?php echo $index; ?>, '<?php echo esc_js($plan['name']); ?>', <?php echo esc_js($plan['price']); ?>, '<?php echo esc_js($currency_code); ?>')"
+                            class="btn <?php echo !empty($plan['popular']) ? 'btn-primary' : 'btn-outline'; ?>"
                             style="width: 100%; padding: 14px; font-weight: 600;"
                             <?php echo !$woo_active ? 'disabled' : ''; ?>>
-                            <?php echo $plan['popular'] ? '🚀 Select Plan' : 'Select Plan'; ?>
+                            <?php echo !empty($plan['popular']) ? '🚀 Select Plan' : 'Select Plan'; ?>
                         </button>
                     </div>
                 <?php endforeach; ?>
@@ -211,11 +225,16 @@ $woo_active = class_exists('WooCommerce');
     let selectedPlanIndex = null;
     let selectedPlanName = '';
     let selectedPlanPrice = 0;
+    let selectedPlanCurrency = 'EUR';
+    let selectedPaymentMethod = null;
     
-    function selectPlan(planIndex, planName, planPrice) {
+    function selectPlan(planIndex, planName, planPrice, planCurrency) {
         selectedPlanIndex = planIndex;
         selectedPlanName = planName;
         selectedPlanPrice = planPrice;
+        selectedPlanCurrency = planCurrency || 'EUR';
+        
+        console.log('Plan selected:', {planIndex, planName, planPrice, planCurrency});
         
         // Load payment methods
         loadPaymentMethods();
@@ -238,14 +257,21 @@ $woo_active = class_exists('WooCommerce');
         .then(data => {
             document.getElementById('loadingOverlay').style.display = 'none';
             
+            console.log('Payment methods response:', data);
+            
             if (data.success) {
-                showPaymentModal(data.data.methods);
+                if (data.data.methods && data.data.methods.length > 0) {
+                    showPaymentModal(data.data.methods);
+                } else {
+                    alert('No payment methods available. Please enable payment gateways in WooCommerce > Settings > Payments.');
+                }
             } else {
                 alert('Error: ' + (data.data.message || 'Failed to load payment methods'));
             }
         })
         .catch(error => {
             document.getElementById('loadingOverlay').style.display = 'none';
+            console.error('Error loading payment methods:', error);
             alert('Error: ' + error.message);
         });
     }
@@ -253,18 +279,28 @@ $woo_active = class_exists('WooCommerce');
     function showPaymentModal(methods) {
         const modalBody = document.getElementById('modalBody');
         
+        // Get currency symbol
+        const currencySymbols = {
+            'USD': '$', 'EUR': '€', 'GBP': '£', 'INR': '₹', 'AUD': 'A$', 
+            'CAD': 'C$', 'CHF': 'CHF', 'CNY': '¥', 'JPY': '¥'
+        };
+        const currencySymbol = currencySymbols[selectedPlanCurrency] || selectedPlanCurrency;
+        
         let methodsHtml = '';
-        methods.forEach(method => {
+        methods.forEach((method, index) => {
             methodsHtml += `
-                <div class="payment-method" onclick="selectPaymentMethod('${method.id}', this)">
-                    <div style="display: flex; align-items: center; gap: 12px;">
-                        <input type="radio" name="payment_method" value="${method.id}" style="width: 20px; height: 20px;">
-                        <div style="flex: 1;">
-                            <div style="font-weight: 600; margin-bottom: 4px;">${method.title}</div>
-                            ${method.description ? `<div style="font-size: 13px; color: #6b7280;">${method.description}</div>` : ''}
-                        </div>
+                <label class="payment-method" for="payment_${method.id}" data-method-id="${method.id}">
+                    <input type="radio" 
+                           name="payment_method" 
+                           id="payment_${method.id}" 
+                           value="${method.id}" 
+                           ${index === 0 ? 'checked' : ''}
+                           onchange="selectPaymentMethodRadio('${method.id}')">
+                    <div style="flex: 1;">
+                        <div style="font-weight: 600; margin-bottom: 4px;">${method.title}</div>
+                        ${method.description ? `<div style="font-size: 13px; color: #6b7280;">${method.description}</div>` : ''}
                     </div>
-                </div>
+                </label>
             `;
         });
         
@@ -272,7 +308,10 @@ $woo_active = class_exists('WooCommerce');
             <div style="text-align: center; margin-bottom: 24px;">
                 <h3 style="margin: 0 0 8px 0;">${selectedPlanName} Plan</h3>
                 <div style="font-size: 32px; font-weight: 700; color: #4CAF50;">
-                    €${selectedPlanPrice}
+                    ${currencySymbol}${selectedPlanPrice}
+                </div>
+                <div style="font-size: 12px; color: #6b7280; margin-top: 4px;">
+                    ${selectedPlanCurrency} per year
                 </div>
             </div>
             
@@ -292,23 +331,41 @@ $woo_active = class_exists('WooCommerce');
         `;
         
         document.getElementById('paymentModal').style.display = 'flex';
+        
+        // Set first method as selected by default
+        if (methods.length > 0) {
+            selectedPaymentMethod = methods[0].id;
+            console.log('Default payment method selected:', selectedPaymentMethod);
+            
+            // Mark first as selected visually
+            setTimeout(() => {
+                const firstMethod = document.querySelector('.payment-method');
+                if (firstMethod) {
+                    firstMethod.classList.add('selected');
+                }
+            }, 100);
+        }
     }
     
-    let selectedPaymentMethod = null;
-    
-    function selectPaymentMethod(methodId, element) {
+    function selectPaymentMethodRadio(methodId) {
+        console.log('Payment method selected:', methodId);
+        selectedPaymentMethod = methodId;
+        
         // Remove previous selection
         document.querySelectorAll('.payment-method').forEach(el => {
             el.classList.remove('selected');
         });
         
-        // Add selection
-        element.classList.add('selected');
-        element.querySelector('input[type="radio"]').checked = true;
-        selectedPaymentMethod = methodId;
+        // Add selection to clicked element
+        const selectedLabel = document.querySelector(`label[data-method-id="${methodId}"]`);
+        if (selectedLabel) {
+            selectedLabel.classList.add('selected');
+        }
     }
     
     function processPayment() {
+        console.log('Processing payment with method:', selectedPaymentMethod);
+        
         if (!selectedPaymentMethod) {
             alert('Please select a payment method');
             return;
@@ -331,6 +388,7 @@ $woo_active = class_exists('WooCommerce');
         })
         .then(response => response.json())
         .then(data => {
+            console.log('Payment order response:', data);
             document.getElementById('loadingOverlay').style.display = 'none';
             
             if (data.success) {
@@ -342,6 +400,7 @@ $woo_active = class_exists('WooCommerce');
         })
         .catch(error => {
             document.getElementById('loadingOverlay').style.display = 'none';
+            console.error('Payment error:', error);
             alert('Error: ' + error.message);
         });
     }
