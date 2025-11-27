@@ -12,6 +12,66 @@ if (!current_user_can('manage_options')) {
     wp_die('Access denied');
 }
 
+// Handle form submission directly
+if (isset($_POST['cip_save_settings']) && check_admin_referer('cip_settings_save', 'cip_settings_nonce')) {
+    
+    // General Settings
+    update_option('cip_company_name', sanitize_text_field($_POST['cip_company_name']));
+    update_option('cip_admin_email', sanitize_email($_POST['cip_admin_email']));
+    update_option('cip_enable_registration', isset($_POST['cip_enable_registration']) ? '1' : '0');
+    update_option('cip_max_file_size', intval($_POST['cip_max_file_size']));
+    update_option('cip_allowed_file_types', sanitize_text_field($_POST['cip_allowed_file_types']));
+    update_option('cip_manager_access_code', sanitize_text_field($_POST['cip_manager_access_code']));
+    
+    // Branding
+    update_option('cip_brand_logo', esc_url_raw($_POST['cip_brand_logo']));
+    update_option('cip_brand_tagline', sanitize_text_field($_POST['cip_brand_tagline']));
+    update_option('cip_brand_primary_color', sanitize_hex_color($_POST['cip_brand_primary_color']));
+    update_option('cip_brand_secondary_color', sanitize_hex_color($_POST['cip_brand_secondary_color']));
+    
+    // GDPR
+    update_option('cip_gdpr_enabled', isset($_POST['cip_gdpr_enabled']) ? '1' : '0');
+    update_option('cip_gdpr_privacy_url', esc_url_raw($_POST['cip_gdpr_privacy_url']));
+    update_option('cip_gdpr_terms_url', esc_url_raw($_POST['cip_gdpr_terms_url']));
+    
+    // Certificates
+    update_option('cip_cert_grading_mode', sanitize_text_field($_POST['cip_cert_grading_mode']));
+    update_option('cip_cert_grade_esg3', intval($_POST['cip_cert_grade_esg3']));
+    update_option('cip_cert_grade_esg2', intval($_POST['cip_cert_grade_esg2']));
+    update_option('cip_cert_grade_esg1', intval($_POST['cip_cert_grade_esg1']));
+    update_option('cip_cert_validity_years', intval($_POST['cip_cert_validity_years']));
+    
+    // Email
+    update_option('cip_email_from_name', sanitize_text_field($_POST['cip_email_from_name']));
+    update_option('cip_email_from_address', sanitize_email($_POST['cip_email_from_address']));
+    update_option('cip_email_approval_subject', sanitize_text_field($_POST['cip_email_approval_subject']));
+    update_option('cip_email_approval_body', wp_kses_post($_POST['cip_email_approval_body']));
+    update_option('cip_email_rejection_subject', sanitize_text_field($_POST['cip_email_rejection_subject']));
+    update_option('cip_email_rejection_body', wp_kses_post($_POST['cip_email_rejection_body']));
+    
+    // Pricing Plans
+    if (isset($_POST['cip_pricing_plans']) && is_array($_POST['cip_pricing_plans'])) {
+        $sanitized_plans = [];
+        foreach ($_POST['cip_pricing_plans'] as $plan) {
+            $sanitized_plans[] = [
+                'name' => sanitize_text_field($plan['name']),
+                'price' => sanitize_text_field($plan['price']),
+                'currency' => sanitize_text_field($plan['currency']),
+                'features' => sanitize_textarea_field($plan['features']),
+                'popular' => !empty($plan['popular'])
+            ];
+        }
+        update_option('cip_pricing_plans', $sanitized_plans);
+        
+        // Debug: Log what was saved
+        error_log('CIP Settings: Saved pricing plans - ' . print_r($sanitized_plans, true));
+    }
+    
+    // Redirect with success message
+    wp_redirect(add_query_arg('settings-updated', 'true', wp_get_referer()));
+    exit;
+}
+
 // Get current settings with proper defaults
 $options = [
     'company_name' => get_option('cip_company_name', 'CleanIndex'),
@@ -48,19 +108,27 @@ $options = [
     'email_rejection_body' => get_option('cip_email_rejection_body', 'We need some additional information.'),
 ];
 
-// Get pricing plans
-$pricing_plans = get_option('cip_pricing_plans', []);
+// Get pricing plans - DO NOT set defaults if empty, let admin configure
+$pricing_plans = get_option('cip_pricing_plans', false);
 
-if (empty($pricing_plans)) {
+// Only set default on first time installation (when option doesn't exist at all)
+if ($pricing_plans === false) {
     $pricing_plans = [
         [
             'name' => 'Basic',
             'price' => '499',
-            'currency' => 'EUR',
+            'currency' => 'INR',
             'features' => "ESG Assessment\nBasic Certificate\nEmail Support",
             'popular' => false
         ]
     ];
+    // Save the default so it can be edited
+    update_option('cip_pricing_plans', $pricing_plans);
+}
+
+// Ensure pricing_plans is always an array
+if (!is_array($pricing_plans)) {
+    $pricing_plans = [];
 }
 
 ?>
@@ -74,6 +142,16 @@ if (empty($pricing_plans)) {
         </div>
     <?php endif; ?>
     
+    <?php if (isset($_GET['debug']) && $_GET['debug'] == '1'): ?>
+        <div class="notice notice-info">
+            <h3>🐛 Debug Information</h3>
+            <p><strong>Current Pricing Plans in Database:</strong></p>
+            <pre style="background: #f5f5f5; padding: 15px; overflow: auto;"><?php 
+                print_r(get_option('cip_pricing_plans')); 
+            ?></pre>
+        </div>
+    <?php endif; ?>
+    
     <h2 class="nav-tab-wrapper">
         <a href="#general" class="nav-tab nav-tab-active" onclick="switchTab(event, 'general')">⚙️ General</a>
         <a href="#pricing" class="nav-tab" onclick="switchTab(event, 'pricing')">💰 Pricing</a>
@@ -83,8 +161,9 @@ if (empty($pricing_plans)) {
         <a href="#gdpr" class="nav-tab" onclick="switchTab(event, 'gdpr')">🔒 GDPR</a>
     </h2>
     
-    <form method="post" action="options.php">
-        <?php settings_fields('cip_settings_group'); ?>
+    <form method="post" action="">
+        <?php wp_nonce_field('cip_settings_save', 'cip_settings_nonce'); ?>
+        <input type="hidden" name="cip_save_settings" value="1">
         
         <!-- GENERAL TAB -->
         <div id="tab-general" class="tab-content" style="display: block; background: white; padding: 20px; margin: 20px 0; border-radius: 8px;">
@@ -507,69 +586,3 @@ function removePlan(button) {
     margin-bottom: 0;
 }
 </style>
-
-<?php
-// Register settings
-add_action('admin_init', 'cip_register_settings');
-
-function cip_register_settings() {
-    // General
-    register_setting('cip_settings_group', 'cip_company_name');
-    register_setting('cip_settings_group', 'cip_admin_email');
-    register_setting('cip_settings_group', 'cip_enable_registration');
-    register_setting('cip_settings_group', 'cip_max_file_size');
-    register_setting('cip_settings_group', 'cip_allowed_file_types');
-    register_setting('cip_settings_group', 'cip_manager_access_code');
-    
-    // Branding
-    register_setting('cip_settings_group', 'cip_brand_logo');
-    register_setting('cip_settings_group', 'cip_brand_tagline');
-    register_setting('cip_settings_group', 'cip_brand_primary_color');
-    register_setting('cip_settings_group', 'cip_brand_secondary_color');
-    
-    // GDPR
-    register_setting('cip_settings_group', 'cip_gdpr_enabled');
-    register_setting('cip_settings_group', 'cip_gdpr_privacy_url');
-    register_setting('cip_settings_group', 'cip_gdpr_terms_url');
-    
-    // Certificates
-    register_setting('cip_settings_group', 'cip_cert_grading_mode');
-    register_setting('cip_settings_group', 'cip_cert_grade_esg3');
-    register_setting('cip_settings_group', 'cip_cert_grade_esg2');
-    register_setting('cip_settings_group', 'cip_cert_grade_esg1');
-    register_setting('cip_settings_group', 'cip_cert_validity_years');
-    
-    // Email
-    register_setting('cip_settings_group', 'cip_email_from_name');
-    register_setting('cip_settings_group', 'cip_email_from_address');
-    register_setting('cip_settings_group', 'cip_email_approval_subject');
-    register_setting('cip_settings_group', 'cip_email_approval_body');
-    register_setting('cip_settings_group', 'cip_email_rejection_subject');
-    register_setting('cip_settings_group', 'cip_email_rejection_body');
-    
-    // Pricing (handled as array)
-    register_setting('cip_settings_group', 'cip_pricing_plans', [
-        'type' => 'array',
-        'sanitize_callback' => 'cip_sanitize_pricing_plans'
-    ]);
-}
-
-function cip_sanitize_pricing_plans($plans) {
-    if (!is_array($plans)) {
-        return [];
-    }
-    
-    $sanitized = [];
-    foreach ($plans as $plan) {
-        if (is_array($plan)) {
-            $sanitized[] = [
-                'name' => sanitize_text_field($plan['name']),
-                'price' => sanitize_text_field($plan['price']),
-                'currency' => sanitize_text_field($plan['currency']),
-                'features' => sanitize_textarea_field($plan['features']),
-                'popular' => !empty($plan['popular'])
-            ];
-        }
-    }
-    return $sanitized;
-}
