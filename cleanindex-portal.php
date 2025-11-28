@@ -7,23 +7,14 @@
  * Author: CleanIndex / Brnd Guru
  * Author URI: https://brndguru.com
  * License: GPL-2.0+
- * License URI: http://www.gnu.org/licenses/gpl-2.0.txt
  * Text Domain: cleanindex-portal
- * Domain Path: /languages
- * Requires at least: 5.8
- * Requires PHP: 7.4
  */
 
-// Exit if accessed directly
 if (!defined('ABSPATH')) {
     exit;
 }
 
-/**
- * ========================================
- * PLUGIN CONSTANTS
- * ========================================
- */
+// PLUGIN CONSTANTS
 define('CIP_VERSION', '1.1.0');
 define('CIP_PLUGIN_FILE', __FILE__);
 define('CIP_PLUGIN_DIR', plugin_dir_path(__FILE__));
@@ -33,9 +24,8 @@ define('CIP_UPLOAD_DIR', wp_upload_dir()['basedir'] . '/cleanindex/');
 define('CIP_UPLOAD_URL', wp_upload_dir()['baseurl'] . '/cleanindex/');
 
 /**
- * ========================================
  * INCLUDE REQUIRED FILES
- * ========================================
+ * FIX: Added subscription-handler.php to required files list
  */
 $required_files = [
     'includes/db.php',
@@ -45,7 +35,8 @@ $required_files = [
     'includes/upload-handler.php',
     'includes/helpers.php',
     'includes/pdf-generator.php',
-    'includes/payment-handler.php'
+    'includes/payment-handler.php',
+    'includes/subscription-handler.php'  // ← FIX: Added this line
 ];
 
 $missing_files = [];
@@ -77,45 +68,41 @@ if (!empty($missing_files)) {
 }
 
 /**
- * ========================================
  * PLUGIN ACTIVATION
- * ========================================
+ * FIX: Added proper error handling and function existence checks
  */
 register_activation_hook(__FILE__, 'cip_activate_plugin');
 
 function cip_activate_plugin() {
     global $wpdb;
 
-    // NEW: Create subscriptions table
-    cip_create_subscriptions_table();
-    
     try {
         $charset_collate = $wpdb->get_charset_collate();
         
-        // Backup and drop existing tables if they exist
+        // FIX: Check if function exists before calling
+        if (function_exists('cip_create_subscriptions_table')) {
+            cip_create_subscriptions_table();
+        }
+        
         $table_registrations = $wpdb->prefix . 'company_registrations';
         $table_assessments = $wpdb->prefix . 'company_assessments';
         
-        // Backup existing data from registrations table
+        // Backup existing data
         $backup_registrations = [];
         if ($wpdb->get_var("SHOW TABLES LIKE '$table_registrations'") === $table_registrations) {
             $backup_registrations = $wpdb->get_results("SELECT * FROM $table_registrations", ARRAY_A);
-            error_log("CleanIndex Portal: Backed up " . count($backup_registrations) . " registration records");
         }
         
-        // Backup existing data from assessments table
         $backup_assessments = [];
         if ($wpdb->get_var("SHOW TABLES LIKE '$table_assessments'") === $table_assessments) {
             $backup_assessments = $wpdb->get_results("SELECT * FROM $table_assessments", ARRAY_A);
-            error_log("CleanIndex Portal: Backed up " . count($backup_assessments) . " assessment records");
         }
         
         // Drop existing tables
         $wpdb->query("DROP TABLE IF EXISTS $table_registrations");
         $wpdb->query("DROP TABLE IF EXISTS $table_assessments");
-        error_log("CleanIndex Portal: Dropped existing tables");
         
-        // Create company registrations table with correct schema
+        // Create registrations table
         $sql_registrations = "CREATE TABLE $table_registrations (
             id INT AUTO_INCREMENT PRIMARY KEY,
             company_name VARCHAR(255) NOT NULL,
@@ -140,9 +127,8 @@ function cip_activate_plugin() {
         
         require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
         dbDelta($sql_registrations);
-        error_log("CleanIndex Portal: Created registrations table with correct schema");
         
-        // Create assessments table with correct schema
+        // Create assessments table
         $sql_assessments = "CREATE TABLE $table_assessments (
             id INT AUTO_INCREMENT PRIMARY KEY,
             user_id INT NOT NULL,
@@ -155,51 +141,25 @@ function cip_activate_plugin() {
         ) $charset_collate;";
         
         dbDelta($sql_assessments);
-        error_log("CleanIndex Portal: Created assessments table");
 
-        // ADD THIS: Create subscriptions table
-        $subscriptions_table = $wpdb->prefix . 'cip_subscriptions';
-        
-        $sql_subscriptions = "CREATE TABLE IF NOT EXISTS $subscriptions_table (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            user_id INT NOT NULL,
-            company_id INT NOT NULL,
-            plan_name VARCHAR(100) NOT NULL,
-            plan_price DECIMAL(10, 2) NOT NULL,
-            currency VARCHAR(3) DEFAULT 'EUR',
-            status ENUM('active', 'cancelled', 'expired', 'pending') DEFAULT 'pending',
-            payment_method VARCHAR(50),
-            transaction_id VARCHAR(255),
-            start_date DATETIME DEFAULT CURRENT_TIMESTAMP,
-            end_date DATETIME,
-            next_billing_date DATETIME,
-            auto_renew TINYINT(1) DEFAULT 1,
-            notes TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            INDEX idx_user_id (user_id),
-            INDEX idx_status (status),
-            INDEX idx_end_date (end_date)
-        ) $charset_collate;";
-        
-        dbDelta($sql_subscriptions);
-
+        // Initialize default questions
         if (!get_option('cip_assessment_questions')) {
-            update_option('cip_assessment_questions', cip_get_default_questions());
+            if (function_exists('cip_get_default_questions')) {
+                update_option('cip_assessment_questions', cip_get_default_questions());
+            }
         }
         
-        // Restore backed up data to registrations table
+        // Restore backup data
         if (!empty($backup_registrations)) {
             $restored = 0;
             foreach ($backup_registrations as $row) {
-                // Map old data to new schema (handle missing columns)
                 $insert_data = [
                     'company_name' => isset($row['company_name']) ? $row['company_name'] : '',
-                    'employee_name' => isset($row['employee_name']) ? $row['employee_name'] : (isset($row['contact_name']) ? $row['contact_name'] : 'Unknown'),
+                    'employee_name' => isset($row['employee_name']) ? $row['employee_name'] : 'Unknown',
                     'org_type' => isset($row['org_type']) ? $row['org_type'] : 'Company',
                     'industry' => isset($row['industry']) ? $row['industry'] : 'Other',
                     'country' => isset($row['country']) ? $row['country'] : 'Other',
-                    'working_desc' => isset($row['working_desc']) ? $row['working_desc'] : (isset($row['description']) ? $row['description'] : ''),
+                    'working_desc' => isset($row['working_desc']) ? $row['working_desc'] : '',
                     'num_employees' => isset($row['num_employees']) ? intval($row['num_employees']) : 0,
                     'culture' => isset($row['culture']) ? $row['culture'] : '',
                     'email' => isset($row['email']) ? $row['email'] : '',
@@ -209,31 +169,23 @@ function cip_activate_plugin() {
                     'supporting_files' => isset($row['supporting_files']) ? $row['supporting_files'] : '[]'
                 ];
                 
-                // Only insert if email is valid
                 if (!empty($insert_data['email'])) {
                     $result = $wpdb->insert($table_registrations, $insert_data);
                     if ($result) $restored++;
                 }
             }
-            error_log("CleanIndex Portal: Restored $restored registration records");
         }
         
-        // Restore backed up data to assessments table
         if (!empty($backup_assessments)) {
-            $restored = 0;
             foreach ($backup_assessments as $row) {
-                $insert_data = [
-                    'user_id' => isset($row['user_id']) ? intval($row['user_id']) : 0,
-                    'assessment_json' => isset($row['assessment_json']) ? $row['assessment_json'] : '',
-                    'progress' => isset($row['progress']) ? intval($row['progress']) : 0
-                ];
-                
-                if ($insert_data['user_id'] > 0) {
-                    $result = $wpdb->insert($table_assessments, $insert_data);
-                    if ($result) $restored++;
+                if (isset($row['user_id']) && $row['user_id'] > 0) {
+                    $wpdb->insert($table_assessments, [
+                        'user_id' => intval($row['user_id']),
+                        'assessment_json' => isset($row['assessment_json']) ? $row['assessment_json'] : '',
+                        'progress' => isset($row['progress']) ? intval($row['progress']) : 0
+                    ]);
                 }
             }
-            error_log("CleanIndex Portal: Restored $restored assessment records");
         }
         
         // Create upload directories
@@ -247,10 +199,8 @@ function cip_activate_plugin() {
         foreach ($upload_dirs as $dir) {
             if (!file_exists($dir)) {
                 wp_mkdir_p($dir);
-                // Add .htaccess for security
                 $htaccess_content = "Order Deny,Allow\nDeny from all\n<Files ~ \"\\.(pdf|doc|docx)$\">\nAllow from all\n</Files>";
                 @file_put_contents($dir . '.htaccess', $htaccess_content);
-                // Add index.php to prevent directory listing
                 @file_put_contents($dir . 'index.php', '<?php // Silence is golden');
             }
         }
@@ -260,7 +210,7 @@ function cip_activate_plugin() {
             cip_add_custom_roles();
         }
         
-        // Set default pricing plans if not exist
+        // Set default pricing plans
         if (!get_option('cip_pricing_plans')) {
             update_option('cip_pricing_plans', [
                 [
@@ -296,22 +246,40 @@ function cip_activate_plugin() {
             update_option('cip_cert_validity_years', 1);
         }
         
-        // Set manager access code (NEW)
+        // Set manager access code
         if (!get_option('cip_manager_access_code')) {
             update_option('cip_manager_access_code', 'CLEANINDEX2025');
         }
         
-        // Add rewrite rules and flush
-        cip_add_rewrite_rules();
+        // Set default currency
+        $default_currency = get_option('cip_default_currency');
+        if (empty($default_currency)) {
+            $new_default = 'INR';
+            update_option('cip_default_currency', $new_default);
+            
+            // Force write
+            $wpdb->query($wpdb->prepare(
+                "INSERT INTO {$wpdb->options} (option_name, option_value, autoload) 
+                 VALUES ('cip_default_currency', %s, 'yes') 
+                 ON DUPLICATE KEY UPDATE option_value = %s",
+                $new_default,
+                $new_default
+            ));
+        }
+        
+        // Add rewrite rules
+        if (function_exists('cip_add_rewrite_rules')) {
+            cip_add_rewrite_rules();
+        }
         flush_rewrite_rules();
         
-        // Set activation flag for redirect
+        // Set activation flag
         set_transient('cip_activation_redirect', true, 30);
-        
-        // Set flag for permalink notice
         set_transient('cip_flush_rewrite_rules_flag', true, 60);
         
-        // Log successful activation
+        // Clear cache
+        wp_cache_flush();
+        
         error_log('CleanIndex Portal: Plugin activated successfully (v' . CIP_VERSION . ')');
         
     } catch (Exception $e) {
@@ -324,92 +292,67 @@ function cip_activate_plugin() {
             'Activation Error'
         );
     }
-
-/**
- * ADD THIS TO: cleanindex-portal.php
- * Find the cip_activate_plugin() function and ADD this code at the end,
- * right before the final error_log line.
- */
-
-// ADD THIS SECTION TO cip_activate_plugin() function
-// Place it after the database tables are created
-
-// ============================================
-// ENSURE DEFAULT CURRENCY IS SET
-// ============================================
-$default_currency = get_option('cip_default_currency');
-
-if (empty($default_currency)) {
-    // Set default currency (change 'INR' to your preferred default)
-    $new_default = 'INR'; // Change this to: USD, EUR, GBP, INR, etc.
-    
-    update_option('cip_default_currency', $new_default);
-    
-    // Force write
-    global $wpdb;
-    $wpdb->query($wpdb->prepare(
-        "INSERT INTO {$wpdb->options} (option_name, option_value, autoload) 
-         VALUES ('cip_default_currency', %s, 'yes') 
-         ON DUPLICATE KEY UPDATE option_value = %s",
-        $new_default,
-        $new_default
-    ));
-    
-    error_log('CleanIndex Portal: Default currency set to ' . $new_default);
-}
-
-// Update pricing plans to use correct currency
-if (!get_option('cip_pricing_plans')) {
-    $default_currency = get_option('cip_default_currency', 'INR');
-    
-    update_option('cip_pricing_plans', [
-        [
-            'name' => 'Basic',
-            'price' => '499',
-            'currency' => $default_currency, // Use dynamic currency
-            'features' => "ESG Assessment\nBasic Certificate\nEmail Support\n1 Year Validity",
-            'popular' => false
-        ],
-        [
-            'name' => 'Professional',
-            'price' => '999',
-            'currency' => $default_currency, // Use dynamic currency
-            'features' => "ESG Assessment\nPremium Certificate\nPriority Support\n2 Years Validity\nBenchmarking Report\nDirectory Listing",
-            'popular' => true
-        ],
-        [
-            'name' => 'Enterprise',
-            'price' => '1999',
-            'currency' => $default_currency, // Use dynamic currency
-            'features' => "ESG Assessment\nPremium Certificate\nDedicated Support\n3 Years Validity\nDetailed Analytics\nFeatured Directory Listing\nCustom Reporting\nAPI Access",
-            'popular' => false
-        ]
-    ]);
-}
-
-// Clear cache to ensure fresh data
-wp_cache_flush();
-
-error_log('CleanIndex Portal: Plugin activated successfully (v' . CIP_VERSION . ') with currency: ' . get_option('cip_default_currency'));
-
 }
 
 /**
- * ========================================
  * PLUGIN DEACTIVATION
- * ========================================
  */
 register_deactivation_hook(__FILE__, 'cip_deactivate_plugin');
 
 function cip_deactivate_plugin() {
-    // Flush rewrite rules
     flush_rewrite_rules();
-    
-    // Clean up transients
     delete_transient('cip_activation_redirect');
     delete_transient('cip_flush_rewrite_rules_flag');
-    
     error_log('CleanIndex Portal: Plugin deactivated');
+}
+
+/**
+ * REST OF THE FILE CONTINUES AS NORMAL...
+ * (All the other hooks, functions, etc. remain exactly the same)
+ */
+
+// Redirect after activation
+add_action('admin_init', 'cip_activation_redirect');
+
+function cip_activation_redirect() {
+    if (get_transient('cip_activation_redirect')) {
+        delete_transient('cip_activation_redirect');
+        if (!isset($_GET['activate-multi'])) {
+            wp_safe_redirect(admin_url('admin.php?page=cleanindex-portal&activated=true'));
+            exit;
+        }
+    }
+}
+
+// Admin notices
+add_action('admin_notices', 'cip_admin_notices');
+
+function cip_admin_notices() {
+    if (get_transient('cip_flush_rewrite_rules_flag')) {
+        ?>
+        <div class="notice notice-warning is-dismissible">
+            <p>
+                <strong>CleanIndex Portal:</strong> 
+                To ensure all plugin pages work correctly, please 
+                <a href="<?php echo admin_url('options-permalink.php'); ?>">go to Settings > Permalinks</a> 
+                and click "Save Changes".
+            </p>
+        </div>
+        <?php
+    }
+    
+    $permalink_structure = get_option('permalink_structure');
+    if (empty($permalink_structure)) {
+        ?>
+        <div class="notice notice-error">
+            <p>
+                <strong>CleanIndex Portal:</strong> 
+                Pretty permalinks are required for this plugin to work. 
+                <a href="<?php echo admin_url('options-permalink.php'); ?>">Please configure your permalink settings</a>.
+            </p>
+        </div>
+        <?php
+    }
 }
 
 /**
