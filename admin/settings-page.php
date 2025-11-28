@@ -23,6 +23,19 @@ if (isset($_POST['cip_save_settings']) && check_admin_referer('cip_settings_save
     update_option('cip_allowed_file_types', sanitize_text_field($_POST['cip_allowed_file_types']));
     update_option('cip_manager_access_code', sanitize_text_field($_POST['cip_manager_access_code']));
     
+    // FIX 2: Save default currency
+    $new_currency = sanitize_text_field($_POST['cip_default_currency']);
+    update_option('cip_default_currency', $new_currency);
+    
+    // Update all pricing plans to use new currency if "apply to all" is checked
+    if (isset($_POST['apply_currency_to_all']) && $_POST['apply_currency_to_all'] === '1') {
+        $pricing_plans = get_option('cip_pricing_plans', []);
+        foreach ($pricing_plans as &$plan) {
+            $plan['currency'] = $new_currency;
+        }
+        update_option('cip_pricing_plans', $pricing_plans);
+    }
+    
     // Branding
     update_option('cip_brand_logo', esc_url_raw($_POST['cip_brand_logo']));
     update_option('cip_brand_tagline', sanitize_text_field($_POST['cip_brand_tagline']));
@@ -222,6 +235,29 @@ if (!is_array($pricing_plans)) {
                         <p class="description">Required code for manager registration</p>
                     </td>
                 </tr>
+                <tr>
+    <th><label for="default_currency">Default Currency</label></th>
+    <td>
+        <select id="default_currency" name="cip_default_currency" style="width: 250px;">
+            <option value="USD" <?php selected(get_option('cip_default_currency', 'EUR'), 'USD'); ?>>$ - US Dollar (USD)</option>
+            <option value="EUR" <?php selected(get_option('cip_default_currency', 'EUR'), 'EUR'); ?>>€ - Euro (EUR)</option>
+            <option value="GBP" <?php selected(get_option('cip_default_currency', 'EUR'), 'GBP'); ?>>£ - British Pound (GBP)</option>
+            <option value="INR" <?php selected(get_option('cip_default_currency', 'EUR'), 'INR'); ?>>₹ - Indian Rupee (INR)</option>
+            <option value="AUD" <?php selected(get_option('cip_default_currency', 'EUR'), 'AUD'); ?>>A$ - Australian Dollar (AUD)</option>
+            <option value="CAD" <?php selected(get_option('cip_default_currency', 'EUR'), 'CAD'); ?>>C$ - Canadian Dollar (CAD)</option>
+            <option value="CHF" <?php selected(get_option('cip_default_currency', 'EUR'), 'CHF'); ?>>CHF - Swiss Franc</option>
+            <option value="JPY" <?php selected(get_option('cip_default_currency', 'EUR'), 'JPY'); ?>>¥ - Japanese Yen</option>
+            <option value="CNY" <?php selected(get_option('cip_default_currency', 'EUR'), 'CNY'); ?>>¥ - Chinese Yuan</option>
+        </select>
+        <p class="description">This will be the default currency for new pricing plans</p>
+        
+        <label style="display: block; margin-top: 10px;">
+            <input type="checkbox" name="apply_currency_to_all" value="1">
+            Apply this currency to all existing pricing plans
+        </label>
+    </td>
+</tr>
+
             </table>
         </div>
         

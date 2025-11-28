@@ -108,7 +108,11 @@ function cip_ajax_get_payment_methods() {
 add_action('wp_ajax_cip_create_payment_order', 'cip_ajax_create_payment_order');
 
 function cip_ajax_create_payment_order() {
-    check_ajax_referer('cip_payment_direct', 'nonce');
+    // FIX 4: Better nonce and validation
+    if (!check_ajax_referer('cip_payment_direct', 'nonce', false)) {
+        wp_send_json_error(['message' => 'Security check failed. Please refresh the page.']);
+        return;
+    }
     
     if (!is_user_logged_in()) {
         wp_send_json_error(['message' => 'Please login first']);
@@ -120,8 +124,23 @@ function cip_ajax_create_payment_order() {
         return;
     }
     
+    // FIX 4: Validate inputs exist
+    if (!isset($_POST['plan_index']) || !isset($_POST['payment_method'])) {
+        wp_send_json_error(['message' => 'Missing required parameters']);
+        return;
+    }
+    
     $plan_index = intval($_POST['plan_index']);
     $payment_method = sanitize_text_field($_POST['payment_method']);
+    
+    // FIX 4: Validate payment method is not empty
+    if (empty($payment_method) || $payment_method === 'null') {
+        wp_send_json_error(['message' => 'Please select a payment method']);
+        return;
+    }
+    
+    // Log for debugging
+    error_log("CleanIndex Payment: Method = {$payment_method}, Plan = {$plan_index}");
     
     // Get product
     $product_id = get_option('cip_woo_product_' . $plan_index);
@@ -138,11 +157,14 @@ function cip_ajax_create_payment_order() {
         return;
     }
     
-    // Verify payment gateway is available
+    // FIX 4: Better gateway validation
     $gateways = WC()->payment_gateways->get_available_payment_gateways();
     
     if (!isset($gateways[$payment_method])) {
-        wp_send_json_error(['message' => 'Selected payment method is not available: ' . $payment_method]);
+        error_log("CleanIndex Payment Error: Gateway '{$payment_method}' not found in available gateways");
+        error_log("Available gateways: " . print_r(array_keys($gateways), true));
+        
+        wp_send_json_error(['message' => "Payment method '{$payment_method}' is not available. Please try another method."]);
         return;
     }
     
@@ -150,7 +172,7 @@ function cip_ajax_create_payment_order() {
     
     // Check if gateway is enabled
     if ($gateway->enabled !== 'yes') {
-        wp_send_json_error(['message' => 'Payment method is not enabled. Please contact support.']);
+        wp_send_json_error(['message' => 'Selected payment method is disabled. Please contact support.']);
         return;
     }
     

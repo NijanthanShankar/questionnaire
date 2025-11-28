@@ -19,7 +19,18 @@ $error = '';
 $success = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['cip_login_nonce'])) {
-    if (wp_verify_nonce($_POST['cip_login_nonce'], 'cip_login')) {
+    
+    // FIX 3: More lenient nonce checking
+    $nonce_valid = wp_verify_nonce($_POST['cip_login_nonce'], 'cip_login');
+    
+    if (!$nonce_valid) {
+        // Log the error for debugging
+        error_log('CleanIndex Login: Nonce verification failed');
+        error_log('POST nonce: ' . $_POST['cip_login_nonce']);
+        error_log('Expected action: cip_login');
+        
+        $error = 'Session expired. Please try again.';
+    } else {
         $email = sanitize_email($_POST['email']);
         $password = $_POST['password'];
         $remember = isset($_POST['remember']);
@@ -53,8 +64,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['cip_login_nonce'])) {
                 exit;
             }
         }
-    } else {
-        $error = 'Security check failed. Please try again.';
     }
 }
 
@@ -91,7 +100,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['cip_reset_nonce'])) {
                 <h1 style="color: var(--primary); margin-bottom: 0.5rem;">CleanIndex</h1>
                 <p style="color: var(--gray-medium);">Sign in to your account</p>
             </div>
-            
+            <input type="hidden" name="cip_login_nonce" value="<?php echo esc_attr($login_nonce); ?>">
+
             <?php if (!empty($error)): ?>
                 <div class="alert alert-error mb-3">
                     <?php echo esc_html($error); ?>
