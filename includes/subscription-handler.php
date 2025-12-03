@@ -1,14 +1,17 @@
 <?php
 /**
- * ============================================
- * SOLUTION 1: DIRECT SUBSCRIPTION SYSTEM
- * (Without WooCommerce)
- * ============================================
+ * CleanIndex Portal - Subscription Handler
+ * FIX FOR ISSUE #1: Missing cip_subscription_table
  * 
- * ADD THIS TO: includes/subscription-handler.php (NEW FILE)
+ * FILE LOCATION: includes/subscription-handler.php
  */
 
-// 1. CREATE SUBSCRIPTION TABLE ON ACTIVATION
+if (!defined('ABSPATH')) exit;
+
+/**
+ * Create subscriptions table on plugin activation
+ * This function should be called during plugin activation
+ */
 function cip_create_subscriptions_table() {
     global $wpdb;
     $charset_collate = $wpdb->get_charset_collate();
@@ -40,27 +43,36 @@ function cip_create_subscriptions_table() {
     require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
     dbDelta($sql);
     
-    error_log('CIP: Subscriptions table created');
+    error_log('CIP: Subscriptions table created/verified');
 }
 
-// 2. SUBSCRIPTION MANAGEMENT FUNCTIONS
+/**
+ * Create a new subscription for a user
+ */
 function cip_create_subscription($user_id, $company_id, $plan) {
     global $wpdb;
     $table = $wpdb->prefix . 'cip_subscriptions';
     
+    // Get validity from settings
     $validity_years = get_option('cip_cert_validity_years', 1);
     $end_date = date('Y-m-d H:i:s', strtotime("+$validity_years year"));
     
-    $wpdb->insert($table, [
+    // Insert subscription
+    $result = $wpdb->insert($table, [
         'user_id' => $user_id,
         'company_id' => $company_id,
         'plan_name' => $plan['name'],
         'plan_price' => $plan['price'],
-        'currency' => $plan['currency'],
+        'currency' => isset($plan['currency']) ? $plan['currency'] : 'EUR',
         'status' => 'active',
         'end_date' => $end_date,
         'next_billing_date' => $end_date
     ]);
+    
+    if ($result === false) {
+        error_log('CIP Error: Failed to create subscription - ' . $wpdb->last_error);
+        return false;
+    }
     
     $subscription_id = $wpdb->insert_id;
     
@@ -71,20 +83,27 @@ function cip_create_subscription($user_id, $company_id, $plan) {
     update_user_meta($user_id, 'cip_subscription_start', current_time('mysql'));
     update_user_meta($user_id, 'cip_subscription_end', $end_date);
     
-    // Create notification
-    cip_create_notification(
-        $user_id,
-        'Subscription Activated',
-        'Your ' . $plan['name'] . ' subscription is now active for ' . $validity_years . ' year(s).',
-        'success',
-        home_url('/cleanindex/dashboard')
-    );
+    // Create notification if function exists
+    if (function_exists('cip_create_notification')) {
+        cip_create_notification(
+            $user_id,
+            'Subscription Activated',
+            'Your ' . $plan['name'] . ' subscription is now active for ' . $validity_years . ' year(s).',
+            'success',
+            home_url('/cleanindex/dashboard')
+        );
+    }
     
     do_action('cip_subscription_created', $subscription_id, $user_id, $plan);
+    
+    error_log("CIP: Created subscription #{$subscription_id} for user #{$user_id}");
     
     return $subscription_id;
 }
 
+/**
+ * Get subscription by user ID
+ */
 function cip_get_subscription($user_id) {
     global $wpdb;
     $table = $wpdb->prefix . 'cip_subscriptions';
@@ -95,18 +114,111 @@ function cip_get_subscription($user_id) {
     ), ARRAY_A);
 }
 
-function cip_cancel_subscription($subscription_id) {
+/**
+ * Get all subscriptions for a user
+ */
+function cip_get_user_subscriptions($user_id) {
     global $wpdb;
     $table = $wpdb->prefix . 'cip_subscriptions';
     
+    return $wpdb->get_results($wpdb->prepare(
+        "SELECT * FROM $table WHERE user_id = %d ORDER BY created_at DESC",
+        $user_id
+    ), ARRAY_A);
+}
+
+/**
+ * Update subscription status
+ */
+function cip_update_subscription_status($subscription_id, $status) {
+    global $wpdb;
+    $table = $wpdb->prefix . 'cip_subscriptions';
+    
+    $valid_statuses = ['active', 'cancelled', 'expired', 'pending'];
+    
+    if (!in_array($status, $valid_statuses)) {
+        return false;
+    }
+    
     return $wpdb->update(
         $table,
-        ['status' => 'cancelled', 'updated_at' => current_time('mysql')],
+        ['status' => $status, 'updated_at' => current_time('mysql')],
         ['id' => $subscription_id]
     );
 }
 
-// 3. AJAX HANDLER FOR DIRECT SUBSCRIPTION
+/**
+ * Cancel a subscription
+ */
+function cip_cancel_subscription($subscription_id) {
+    global $wpdb;
+    $table = $wpdb->prefix . 'cip_subscriptions';
+    
+    $subscription = $wpdb->get_row($wpdb->prepare(
+        "SELECT * FROM $table WHERE id = %d",
+        $subscription_id
+    ), ARRAY_A);
+    
+    if (!$subscription) {
+        return false;
+    }
+    
+    // Update subscription status
+    $result = $wpdb->update(
+        $table,
+        ['status' => 'cancelled', 'updated_at' => current_time('mysql')],
+        ['id' => $subscription_id]
+    );
+    
+    if ($result !== false) {
+        // Update user meta
+        update_user_meta($subscription['user_id'], 'cip_subscription_status', 'cancelled');
+        
+        do_action('cip_subscription_cancelled', $subscription_id, $subscription['user_id']);
+        
+        error_log("CIP: Cancelled subscription #{$subscription_id}");
+    }
+    
+    return $result;
+}
+
+/**
+ * Check if subscription is expired and update status
+ */
+function cip_check_subscription_expiry($subscription_id) {
+    global $wpdb;
+    $table = $wpdb->prefix . 'cip_subscriptions';
+    
+    $subscription = $wpdb->get_row($wpdb->prepare(
+        "SELECT * FROM $table WHERE id = %d",
+        $subscription_id
+    ), ARRAY_A);
+    
+    if (!$subscription) {
+        return false;
+    }
+    
+    // Check if expired
+    if ($subscription['status'] === 'active' && 
+        !empty($subscription['end_date']) && 
+        strtotime($subscription['end_date']) < current_time('timestamp')) {
+        
+        cip_update_subscription_status($subscription_id, 'expired');
+        update_user_meta($subscription['user_id'], 'cip_subscription_status', 'expired');
+        
+        do_action('cip_subscription_expired', $subscription_id, $subscription['user_id']);
+        
+        error_log("CIP: Subscription #{$subscription_id} marked as expired");
+        
+        return true;
+    }
+    
+    return false;
+}
+
+/**
+ * AJAX: Subscribe to a plan directly (without WooCommerce)
+ */
 add_action('wp_ajax_cip_subscribe_plan', 'cip_ajax_subscribe_plan');
 
 function cip_ajax_subscribe_plan() {
@@ -146,44 +258,48 @@ function cip_ajax_subscribe_plan() {
     $subscription_id = cip_create_subscription($user_id, $registration['id'], $plan);
     
     if ($subscription_id) {
-        // Auto-generate certificate if assessment is complete
-        $table_assessments = $wpdb->prefix . 'company_assessments';
-        $assessment = $wpdb->get_row($wpdb->prepare(
-            "SELECT * FROM $table_assessments WHERE user_id = %d AND progress >= 5",
-            $registration['id']
-        ), ARRAY_A);
-        
-        if ($assessment && class_exists('CIP_PDF_Generator')) {
-            $cert_mode = get_option('cip_cert_grading_mode', 'automatic');
-            
-            if ($cert_mode === 'automatic') {
-                $assessment_data = json_decode($assessment['assessment_json'], true);
-                $grade = CIP_PDF_Generator::calculate_grade($assessment_data);
-                $result = CIP_PDF_Generator::generate_certificate_pdf($registration['id'], $grade);
-                
-                if ($result['success']) {
-                    // Send certificate email
-                    $subject = 'Your ESG Certificate - CleanIndex';
-                    $message = "Congratulations! Your ESG certificate (Grade: {$grade}) has been generated.\n\n";
-                    $message .= "Download: " . $result['url'] . "\n";
-                    $message .= "Certificate Number: " . $result['cert_number'];
-                    
-                    wp_mail(
-                        wp_get_current_user()->user_email,
-                        $subject,
-                        $message,
-                        ['Content-Type: text/plain; charset=UTF-8']
-                    );
-                }
-            }
-        }
-        
         wp_send_json_success([
-            'message' => 'Subscription activated successfully!',
+            'message' => 'Subscription activated successfully',
             'subscription_id' => $subscription_id,
             'redirect' => home_url('/cleanindex/dashboard')
         ]);
     } else {
         wp_send_json_error(['message' => 'Failed to create subscription']);
     }
+}
+
+/**
+ * Cron job to check expired subscriptions
+ * Run daily
+ */
+add_action('cip_daily_subscription_check', 'cip_daily_subscription_check_callback');
+
+function cip_daily_subscription_check_callback() {
+    global $wpdb;
+    $table = $wpdb->prefix . 'cip_subscriptions';
+    
+    // Get all active subscriptions that have passed their end date
+    $expired = $wpdb->get_results(
+        "SELECT * FROM $table 
+        WHERE status = 'active' 
+        AND end_date IS NOT NULL 
+        AND end_date < NOW()",
+        ARRAY_A
+    );
+    
+    foreach ($expired as $subscription) {
+        cip_update_subscription_status($subscription['id'], 'expired');
+        update_user_meta($subscription['user_id'], 'cip_subscription_status', 'expired');
+        
+        error_log("CIP: Auto-expired subscription #{$subscription['id']}");
+    }
+    
+    if (count($expired) > 0) {
+        error_log("CIP: Expired " . count($expired) . " subscriptions");
+    }
+}
+
+// Schedule the cron job if not already scheduled
+if (!wp_next_scheduled('cip_daily_subscription_check')) {
+    wp_schedule_event(time(), 'daily', 'cip_daily_subscription_check');
 }

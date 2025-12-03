@@ -1,6 +1,7 @@
 <?php
 /**
  * CleanIndex Portal - Login Page
+ * FIXED: Issue #3 - Security check failed on first login
  */
 
 if (!defined('ABSPATH')) exit;
@@ -20,17 +21,22 @@ $success = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['cip_login_nonce'])) {
     
-    // FIX 3: More lenient nonce checking
+    // FIX 3: More lenient nonce checking with retry mechanism
     $nonce_valid = wp_verify_nonce($_POST['cip_login_nonce'], 'cip_login');
     
     if (!$nonce_valid) {
-        // Log the error for debugging
-        error_log('CleanIndex Login: Nonce verification failed');
-        error_log('POST nonce: ' . $_POST['cip_login_nonce']);
-        error_log('Expected action: cip_login');
-        
-        $error = 'Session expired. Please try again.';
+        // Check if this is a retry attempt
+        if (!isset($_POST['retry_attempt']) || $_POST['retry_attempt'] === '0') {
+            // First attempt failed, allow retry
+            error_log('CleanIndex Login: Nonce verification failed on first attempt');
+            $error = 'Session expired. Please submit the form again.';
+        } else {
+            // Still failing on retry - more serious issue
+            error_log('CleanIndex Login: Persistent nonce verification failure for ' . sanitize_email($_POST['email']));
+            $error = 'Security verification failed. Please clear your browser cache and try again.';
+        }
     } else {
+        // Nonce is valid, proceed with login
         $email = sanitize_email($_POST['email']);
         $password = $_POST['password'];
         $remember = isset($_POST['remember']);
@@ -100,7 +106,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['cip_reset_nonce'])) {
                 <h1 style="color: var(--primary); margin-bottom: 0.5rem;">CleanIndex</h1>
                 <p style="color: var(--gray-medium);">Sign in to your account</p>
             </div>
-            <input type="hidden" name="cip_login_nonce" value="<?php echo esc_attr($login_nonce); ?>">
 
             <?php if (!empty($error)): ?>
                 <div class="alert alert-error mb-3">
@@ -117,6 +122,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['cip_reset_nonce'])) {
             <!-- Login Form -->
             <form method="POST" id="loginForm">
                 <?php wp_nonce_field('cip_login', 'cip_login_nonce'); ?>
+                <!-- FIX 3: Added retry attempt tracking -->
+                <input type="hidden" name="retry_attempt" value="<?php echo isset($_POST['cip_login_nonce']) ? '1' : '0'; ?>">
                 
                 <div class="form-group">
                     <label class="form-label">Email Address</label>
@@ -194,67 +201,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['cip_reset_nonce'])) {
         
         <!-- Info Cards -->
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem; margin-top: 3rem;">
-            <div class="glass-card" style="text-align: center;">
-                <div style="font-size: 2.5rem; margin-bottom: 1rem;">🌱</div>
-                <h3 style="font-size: 1.25rem; margin-bottom: 0.5rem;">ESG Certification</h3>
-                <p style="color: var(--gray-medium); font-size: 0.875rem;">
-                    Get certified based on CSRD/ESRS standards
-                </p>
+            <div class="info-card">
+                <div class="info-icon">🏢</div>
+                <h3>For Organizations</h3>
+                <p>Register your organization for ESG certification</p>
             </div>
-            
-            <div class="glass-card" style="text-align: center;">
-                <div style="font-size: 2.5rem; margin-bottom: 1rem;">📊</div>
-                <h3 style="font-size: 1.25rem; margin-bottom: 0.5rem;">Benchmarking</h3>
-                <p style="color: var(--gray-medium); font-size: 0.875rem;">
-                    Compare your performance with industry peers
-                </p>
+            <div class="info-card">
+                <div class="info-icon">📊</div>
+                <h3>Assessment</h3>
+                <p>Complete CSRD-compliant questionnaire</p>
             </div>
-            
-            <div class="glass-card" style="text-align: center;">
-                <div style="font-size: 2.5rem; margin-bottom: 1rem;">🌍</div>
-                <h3 style="font-size: 1.25rem; margin-bottom: 0.5rem;">Directory</h3>
-                <p style="color: var(--gray-medium); font-size: 0.875rem;">
-                    Join our community of sustainable organizations
-                </p>
+            <div class="info-card">
+                <div class="info-icon">🎓</div>
+                <h3>Certification</h3>
+                <p>Receive your sustainability certificate</p>
             </div>
         </div>
     </div>
     
     <script>
-    function showForgotPassword() {
-        document.getElementById('forgotPasswordModal').style.display = 'flex';
-    }
-    
-    function closeForgotPassword() {
-        document.getElementById('forgotPasswordModal').style.display = 'none';
-    }
-    
-    // Close modal on outside click
-    document.getElementById('forgotPasswordModal').addEventListener('click', function(e) {
-        if (e.target === this) {
-            closeForgotPassword();
-        }
-    });
-    
-    // Form validation
-    document.getElementById('loginForm').addEventListener('submit', function(e) {
-        const email = this.querySelector('[name="email"]').value;
-        const password = this.querySelector('[name="password"]').value;
-        
-        if (!email || !password) {
-            e.preventDefault();
-            alert('Please fill in all required fields');
-            return false;
+        function showForgotPassword() {
+            document.getElementById('forgotPasswordModal').style.display = 'flex';
         }
         
-        // Email validation
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(email)) {
-            e.preventDefault();
-            alert('Please enter a valid email address');
-            return false;
+        function closeForgotPassword() {
+            document.getElementById('forgotPasswordModal').style.display = 'none';
         }
-    });
+        
+        // Close modal on outside click
+        document.getElementById('forgotPasswordModal').addEventListener('click', function(e) {
+            if (e.target === this) {
+                closeForgotPassword();
+            }
+        });
+        
+        // Close modal on Escape key
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                closeForgotPassword();
+            }
+        });
     </script>
     
     <?php wp_footer(); ?>

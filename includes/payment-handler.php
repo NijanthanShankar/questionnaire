@@ -1,7 +1,10 @@
 <?php
 /**
- * FIXED Payment Handler with Razorpay Support
- * REPLACE: includes/payment-handler.php
+ * CleanIndex Portal - Payment Handler
+ * COMPLETE FILE WITH ALL FIXES APPLIED
+ * FIX #4: Better validation for payment methods
+ * 
+ * FILE LOCATION: wp-content/plugins/cleanindex-portal/includes/payment-handler.php
  */
 
 if (!defined('ABSPATH')) exit;
@@ -45,6 +48,44 @@ function cip_ensure_products_exist() {
             $product->set_catalog_visibility('hidden');
             
             // Save meta
+            $product->update_meta_data('_cip_plan_index', $index);
+            $product->update_meta_data('_cip_plan_name', $plan['name']);
+            
+            $product_id = $product->save();
+            update_option('cip_woo_product_' . $index, $product_id);
+        }
+    }
+}
+
+/**
+ * Update WooCommerce products when plans change
+ */
+function cip_update_woocommerce_products($old_plans, $new_plans) {
+    if (!class_exists('WooCommerce')) {
+        return;
+    }
+    
+    foreach ($new_plans as $index => $plan) {
+        $product_id = get_option('cip_woo_product_' . $index);
+        
+        if ($product_id) {
+            $product = wc_get_product($product_id);
+            if ($product) {
+                $product->set_name('CleanIndex ' . $plan['name'] . ' Plan');
+                $product->set_regular_price($plan['price']);
+                $product->set_description('ESG Certification - ' . $plan['name'] . ' Plan');
+                $product->update_meta_data('_cip_plan_name', $plan['name']);
+                $product->save();
+            }
+        } else {
+            // Create new product
+            $product = new WC_Product_Simple();
+            $product->set_name('CleanIndex ' . $plan['name'] . ' Plan');
+            $product->set_regular_price($plan['price']);
+            $product->set_description('ESG Certification - ' . $plan['name'] . ' Plan');
+            $product->set_virtual(true);
+            $product->set_sold_individually(true);
+            $product->set_catalog_visibility('hidden');
             $product->update_meta_data('_cip_plan_index', $index);
             $product->update_meta_data('_cip_plan_name', $plan['name']);
             
@@ -104,11 +145,12 @@ function cip_ajax_get_payment_methods() {
 
 /**
  * AJAX: Create Order and Get Payment Form
+ * FIX #4: Added comprehensive validation
  */
 add_action('wp_ajax_cip_create_payment_order', 'cip_ajax_create_payment_order');
 
 function cip_ajax_create_payment_order() {
-    // FIX 4: Better nonce and validation
+    // FIX #4: Better nonce and validation
     if (!check_ajax_referer('cip_payment_direct', 'nonce', false)) {
         wp_send_json_error(['message' => 'Security check failed. Please refresh the page.']);
         return;
@@ -124,8 +166,10 @@ function cip_ajax_create_payment_order() {
         return;
     }
     
-    // FIX 4: Validate inputs exist
+    // FIX #4: Validate inputs exist and are not null
     if (!isset($_POST['plan_index']) || !isset($_POST['payment_method'])) {
+        error_log('CleanIndex Payment Error: Missing parameters');
+        error_log('POST data: ' . print_r($_POST, true));
         wp_send_json_error(['message' => 'Missing required parameters']);
         return;
     }
@@ -133,14 +177,14 @@ function cip_ajax_create_payment_order() {
     $plan_index = intval($_POST['plan_index']);
     $payment_method = sanitize_text_field($_POST['payment_method']);
     
-    // FIX 4: Validate payment method is not empty
-    if (empty($payment_method) || $payment_method === 'null') {
-        wp_send_json_error(['message' => 'Please select a payment method']);
+    // FIX #4: Validate payment method is not empty or "null" string
+    if (empty($payment_method) || $payment_method === 'null' || $payment_method === 'undefined') {
+        error_log('CleanIndex Payment Error: Invalid payment method value: ' . $payment_method);
+        wp_send_json_error(['message' => 'Please select a valid payment method']);
         return;
     }
     
-    // Log for debugging
-    error_log("CleanIndex Payment: Method = {$payment_method}, Plan = {$plan_index}");
+    error_log("CleanIndex Payment: Processing - Method: {$payment_method}, Plan: {$plan_index}");
     
     // Get product
     $product_id = get_option('cip_woo_product_' . $plan_index);
@@ -157,7 +201,7 @@ function cip_ajax_create_payment_order() {
         return;
     }
     
-    // FIX 4: Better gateway validation
+    // FIX #4: Better gateway validation
     $gateways = WC()->payment_gateways->get_available_payment_gateways();
     
     if (!isset($gateways[$payment_method])) {
@@ -309,22 +353,26 @@ function cip_handle_woo_order_completed($order_id) {
     update_user_meta($user_id, 'cip_subscription_end', $end_date);
     update_user_meta($user_id, 'cip_woo_order_id', $order_id);
     
-    // Create subscription record
+    // Create subscription record if table exists
     global $wpdb;
-    $wpdb->insert(
-        $wpdb->prefix . 'cip_subscriptions',
-        [
-            'user_id' => $user_id,
-            'company_id' => $registration_id,
-            'plan_name' => $plan['name'],
-            'plan_price' => $plan['price'],
-            'currency' => $plan['currency'],
-            'status' => 'active',
-            'payment_method' => $order->get_payment_method(),
-            'transaction_id' => $order->get_transaction_id(),
-            'end_date' => $end_date
-        ]
-    );
+    $subscription_table = $wpdb->prefix . 'cip_subscriptions';
+    
+    if ($wpdb->get_var("SHOW TABLES LIKE '$subscription_table'") === $subscription_table) {
+        $wpdb->insert(
+            $subscription_table,
+            [
+                'user_id' => $user_id,
+                'company_id' => $registration_id,
+                'plan_name' => $plan['name'],
+                'plan_price' => $plan['price'],
+                'currency' => isset($plan['currency']) ? $plan['currency'] : 'EUR',
+                'status' => 'active',
+                'payment_method' => $order->get_payment_method(),
+                'transaction_id' => $order->get_transaction_id(),
+                'end_date' => $end_date
+            ]
+        );
+    }
     
     // Mark order as processed
     $order->update_meta_data('_cip_subscription_activated', true);
@@ -345,64 +393,67 @@ function cip_handle_woo_order_completed($order_id) {
     if ($registration_id && class_exists('CIP_PDF_Generator')) {
         $table_assessments = $wpdb->prefix . 'company_assessments';
         $assessment = $wpdb->get_row($wpdb->prepare(
-            "SELECT * FROM $table_assessments WHERE user_id = %d AND progress >= 5",
-            $registration_id
+            "SELECT * FROM $table_assessments WHERE user_id = %d",
+            $user_id
         ), ARRAY_A);
         
-        if ($assessment) {
-            $cert_mode = get_option('cip_cert_grading_mode', 'automatic');
-            
-            if ($cert_mode === 'automatic') {
-                $assessment_data = json_decode($assessment['assessment_json'], true);
-                $grade = CIP_PDF_Generator::calculate_grade($assessment_data);
-                $result = CIP_PDF_Generator::generate_certificate_pdf($registration_id, $grade);
+        if ($assessment && $assessment['progress'] >= 5 && !get_user_meta($user_id, 'cip_certificate_generated', true)) {
+            try {
+                $pdf = new CIP_PDF_Generator();
+                $cert_url = $pdf->generate_certificate($user_id, $registration);
                 
-                if ($result['success']) {
-                    // Send certificate email
-                    $user = get_userdata($user_id);
-                    wp_mail(
-                        $user->user_email,
-                        'Your ESG Certificate - CleanIndex',
-                        "Congratulations! Your ESG certificate (Grade: {$grade}) has been generated.\n\nView it at: " . home_url('/cleanindex/certificate')
-                    );
+                if ($cert_url) {
+                    update_user_meta($user_id, 'cip_certificate_generated', true);
+                    update_user_meta($user_id, 'cip_certificate_url', $cert_url);
                     
-                    // Create notification
                     if (function_exists('cip_create_notification')) {
                         cip_create_notification(
                             $user_id,
-                            'Certificate Generated',
-                            'Your ' . $grade . ' certificate is ready!',
+                            'Certificate Ready',
+                            'Your ESG certificate has been generated and is ready for download!',
                             'success',
                             home_url('/cleanindex/certificate')
                         );
                     }
                 }
+            } catch (Exception $e) {
+                error_log('CleanIndex: Certificate generation failed - ' . $e->getMessage());
             }
         }
     }
+    
+    error_log("CleanIndex: Subscription activated for order #{$order_id}, user #{$user_id}");
 }
 
 /**
- * Get Available Payment Methods (Helper)
+ * Handle Order Cancellation
  */
-function cip_get_available_payment_methods() {
-    if (!class_exists('WooCommerce')) {
-        return [];
+add_action('woocommerce_order_status_cancelled', 'cip_handle_woo_order_cancelled');
+add_action('woocommerce_order_status_failed', 'cip_handle_woo_order_cancelled');
+
+function cip_handle_woo_order_cancelled($order_id) {
+    $order = wc_get_order($order_id);
+    
+    if (!$order) {
+        return;
     }
     
-    $gateways = WC()->payment_gateways->get_available_payment_gateways();
-    $methods = [];
+    $user_id = $order->get_meta('_cip_user_id');
     
-    foreach ($gateways as $gateway_id => $gateway) {
-        if ($gateway->is_available() && $gateway->enabled === 'yes') {
-            $methods[] = [
-                'id' => $gateway_id,
-                'title' => $gateway->get_title(),
-                'description' => $gateway->get_description(),
-                'icon' => $gateway->get_icon()
-            ];
+    if ($user_id) {
+        // Don't deactivate if subscription was already activated
+        if (!$order->get_meta('_cip_subscription_activated')) {
+            update_user_meta($user_id, 'cip_subscription_status', 'cancelled');
+            
+            if (function_exists('cip_create_notification')) {
+                cip_create_notification(
+                    $user_id,
+                    'Payment Cancelled',
+                    'Your payment was cancelled. Please try again if you wish to subscribe.',
+                    'error',
+                    home_url('/cleanindex/pricing')
+                );
+            }
         }
     }
-    
-    return $methods;
 }
