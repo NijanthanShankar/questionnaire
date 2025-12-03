@@ -9,12 +9,7 @@
  * License: GPL-2.0+
  * Text Domain: cleanindex-portal
  * 
- * ALL FIXES APPLIED:
- * Fix #1: Added subscription-handler.php to includes
- * Fix #2: Sets default currency on activation
- * Fix #5: Error handling with try-catch
- * 
- * COMPLETE FILE - 1556+ LINES
+ * COMPLETE & FIXED VERSION WITH ALL FIXES APPLIED
  */
 
 if (!defined('ABSPATH')) {
@@ -31,10 +26,8 @@ define('CIP_UPLOAD_DIR', wp_upload_dir()['basedir'] . '/cleanindex/');
 define('CIP_UPLOAD_URL', wp_upload_dir()['baseurl'] . '/cleanindex/');
 
 /**
- * ========================================
  * INCLUDE REQUIRED FILES
  * FIX #1: Added subscription-handler.php
- * ========================================
  */
 $required_files = [
     'includes/db.php',
@@ -45,7 +38,7 @@ $required_files = [
     'includes/helpers.php',
     'includes/pdf-generator.php',
     'includes/payment-handler.php',
-    'includes/subscription-handler.php'  // ← FIX #1: Added this line
+    'includes/subscription-handler.php'  // ← FIX #1
 ];
 
 $missing_files = [];
@@ -78,7 +71,7 @@ if (!empty($missing_files)) {
 
 /**
  * ========================================
- * PLUGIN ACTIVATION
+ * PLUGIN ACTIVATION - COMPLETE & FIXED
  * FIX #1, #2, #5: All activation fixes applied
  * ========================================
  */
@@ -91,43 +84,101 @@ function cip_activate_plugin() {
     try {
         $charset_collate = $wpdb->get_charset_collate();
         
-        // Create company registrations table
         $table_registrations = $wpdb->prefix . 'company_registrations';
-        $sql_registrations = "CREATE TABLE IF NOT EXISTS $table_registrations (
+        $table_assessments = $wpdb->prefix . 'company_assessments';
+        
+        // Backup existing data if tables exist
+        $backup_registrations = [];
+        if ($wpdb->get_var("SHOW TABLES LIKE '$table_registrations'") === $table_registrations) {
+            $backup_registrations = $wpdb->get_results("SELECT * FROM $table_registrations", ARRAY_A);
+        }
+        
+        $backup_assessments = [];
+        if ($wpdb->get_var("SHOW TABLES LIKE '$table_assessments'") === $table_assessments) {
+            $backup_assessments = $wpdb->get_results("SELECT * FROM $table_assessments", ARRAY_A);
+        }
+        
+        // Drop existing tables to recreate with correct structure
+        $wpdb->query("DROP TABLE IF EXISTS $table_registrations");
+        $wpdb->query("DROP TABLE IF EXISTS $table_assessments");
+        
+        // Create registrations table with COMPLETE structure
+        $sql_registrations = "CREATE TABLE $table_registrations (
             id INT AUTO_INCREMENT PRIMARY KEY,
             company_name VARCHAR(255) NOT NULL,
             employee_name VARCHAR(255) NOT NULL,
             org_type VARCHAR(100) NOT NULL,
-            industry VARCHAR(255),
-            country VARCHAR(100),
+            industry VARCHAR(255) NOT NULL,
+            country VARCHAR(100) NOT NULL,
             working_desc TEXT,
-            num_employees INT DEFAULT 0,
+            num_employees INT,
             culture VARCHAR(255),
             email VARCHAR(255) UNIQUE NOT NULL,
             password VARCHAR(255) NOT NULL,
-            status ENUM('pending_manager_review', 'recommended', 'approved', 'rejected') DEFAULT 'pending_manager_review',
+            status ENUM('pending_manager_review','pending_admin_approval','approved','rejected') DEFAULT 'pending_manager_review',
             manager_notes TEXT,
-            supporting_files LONGTEXT,
+            supporting_files LONGTEXT NULL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             INDEX idx_email (email),
-            INDEX idx_status (status)
+            INDEX idx_status (status),
+            INDEX idx_created (created_at)
         ) $charset_collate;";
         
-        // Create company assessments table
-        $table_assessments = $wpdb->prefix . 'company_assessments';
-        $sql_assessments = "CREATE TABLE IF NOT EXISTS $table_assessments (
+        require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+        dbDelta($sql_registrations);
+        
+        // Create assessments table with COMPLETE structure
+        $sql_assessments = "CREATE TABLE $table_assessments (
             id INT AUTO_INCREMENT PRIMARY KEY,
             user_id INT NOT NULL,
             assessment_json LONGTEXT,
             progress INT DEFAULT 0,
             submitted_at DATETIME,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            INDEX idx_user_id (user_id)
+            INDEX idx_user_id (user_id),
+            INDEX idx_progress (progress)
         ) $charset_collate;";
         
-        require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
-        dbDelta($sql_registrations);
         dbDelta($sql_assessments);
+        
+        // Restore backup data if any
+        if (!empty($backup_registrations)) {
+            foreach ($backup_registrations as $row) {
+                $insert_data = [
+                    'company_name' => isset($row['company_name']) ? $row['company_name'] : '',
+                    'employee_name' => isset($row['employee_name']) ? $row['employee_name'] : 'Unknown',
+                    'org_type' => isset($row['org_type']) ? $row['org_type'] : 'Company',
+                    'industry' => isset($row['industry']) ? $row['industry'] : 'Other',
+                    'country' => isset($row['country']) ? $row['country'] : 'Other',
+                    'working_desc' => isset($row['working_desc']) ? $row['working_desc'] : '',
+                    'num_employees' => isset($row['num_employees']) ? intval($row['num_employees']) : 0,
+                    'culture' => isset($row['culture']) ? $row['culture'] : '',
+                    'email' => isset($row['email']) ? $row['email'] : '',
+                    'password' => isset($row['password']) ? $row['password'] : '',
+                    'status' => isset($row['status']) ? $row['status'] : 'pending_manager_review',
+                    'manager_notes' => isset($row['manager_notes']) ? $row['manager_notes'] : '',
+                    'supporting_files' => isset($row['supporting_files']) ? $row['supporting_files'] : '[]'
+                ];
+                
+                if (!empty($insert_data['email'])) {
+                    $wpdb->insert($table_registrations, $insert_data);
+                }
+            }
+        }
+        
+        if (!empty($backup_assessments)) {
+            foreach ($backup_assessments as $row) {
+                if (isset($row['user_id']) && $row['user_id'] > 0) {
+                    $wpdb->insert($table_assessments, [
+                        'user_id' => intval($row['user_id']),
+                        'assessment_json' => isset($row['assessment_json']) ? $row['assessment_json'] : '{}',
+                        'progress' => isset($row['progress']) ? intval($row['progress']) : 0,
+                        'submitted_at' => isset($row['submitted_at']) ? $row['submitted_at'] : null
+                    ]);
+                }
+            }
+        }
         
         // FIX #1: Create subscriptions table
         if (function_exists('cip_create_subscriptions_table')) {
@@ -156,11 +207,19 @@ function cip_activate_plugin() {
             wp_mkdir_p(CIP_UPLOAD_DIR . 'certificates/');
         }
         
-        // Add rewrite rules
-        if (function_exists('cip_add_rewrite_rules')) {
-            cip_add_rewrite_rules();
+        // Initialize default questions
+        if (!get_option('cip_assessment_questions')) {
+            if (function_exists('cip_get_default_questions')) {
+                update_option('cip_assessment_questions', cip_get_default_questions());
+            }
         }
+        
+        // Add rewrite rules
+        cip_add_rewrite_rules();
         flush_rewrite_rules();
+        
+        // Schedule cron jobs
+        cip_schedule_cron_jobs();
         
         // Set activation flag
         set_transient('cip_activation_redirect', true, 30);
@@ -174,6 +233,7 @@ function cip_activate_plugin() {
     } catch (Exception $e) {
         // FIX #5: Error handling instead of crash
         error_log('CleanIndex Portal Activation Error: ' . $e->getMessage());
+        error_log('Stack trace: ' . $e->getTraceAsString());
         
         // Show error notice instead of dying
         add_action('admin_notices', function() use ($e) {
@@ -196,6 +256,7 @@ function cip_deactivate_plugin() {
     flush_rewrite_rules();
     delete_transient('cip_activation_redirect');
     delete_transient('cip_flush_rewrite_rules_flag');
+    cip_unschedule_cron_jobs();
     error_log('CleanIndex Portal: Plugin deactivated');
 }
 
@@ -272,23 +333,17 @@ function cip_template_redirect() {
     
     // Handle PDF downloads
     if ($page === 'download-assessment-pdf') {
-        if (function_exists('cip_download_assessment_pdf')) {
-            cip_download_assessment_pdf();
-        }
+        cip_download_assessment_pdf();
         exit;
     }
     
     if ($page === 'download-certificate') {
-        if (function_exists('cip_download_certificate')) {
-            cip_download_certificate();
-        }
+        cip_download_certificate();
         exit;
     }
     
     if ($page === 'verify') {
-        if (function_exists('cip_verify_certificate')) {
-            cip_verify_certificate();
-        }
+        cip_verify_certificate();
         exit;
     }
     
@@ -330,6 +385,106 @@ function cip_template_redirect() {
             '<p><a href="' . home_url() . '">← Back to Home</a></p>',
             'Template Not Found'
         );
+    }
+}
+
+/**
+ * ========================================
+ * PDF DOWNLOAD HANDLERS
+ * ========================================
+ */
+function cip_download_assessment_pdf() {
+    if (!is_user_logged_in()) {
+        wp_die('Not authorized');
+    }
+    
+    $user = wp_get_current_user();
+    global $wpdb;
+    $table = $wpdb->prefix . 'company_registrations';
+    $registration = $wpdb->get_row($wpdb->prepare(
+        "SELECT * FROM $table WHERE email = %s",
+        $user->user_email
+    ), ARRAY_A);
+    
+    if (!$registration) {
+        wp_die('Registration not found');
+    }
+    
+    if (class_exists('CIP_PDF_Generator')) {
+        $pdf_gen = new CIP_PDF_Generator();
+        $result = $pdf_gen->generate_assessment_pdf($registration['id']);
+        
+        if ($result['success']) {
+            header('Content-Type: application/pdf');
+            header('Content-Disposition: attachment; filename="ESG_Assessment.pdf"');
+            readfile($result['path']);
+            exit;
+        }
+    }
+    
+    wp_die('Error generating PDF');
+}
+
+function cip_download_certificate() {
+    if (!is_user_logged_in()) {
+        wp_die('Not authorized');
+    }
+    
+    $cert_url = get_user_meta(get_current_user_id(), 'cip_certificate_url', true);
+    
+    if (!$cert_url) {
+        wp_die('Certificate not found');
+    }
+    
+    $cert_path = str_replace(CIP_UPLOAD_URL, CIP_UPLOAD_DIR, $cert_url);
+    
+    if (file_exists($cert_path)) {
+        header('Content-Type: application/pdf');
+        header('Content-Disposition: attachment; filename="ESG_Certificate.pdf"');
+        readfile($cert_path);
+        exit;
+    } else {
+        wp_die('Certificate file not found');
+    }
+}
+
+function cip_verify_certificate() {
+    $cert_number = get_query_var('cert_number');
+    
+    if (!$cert_number) {
+        wp_die('Invalid certificate number');
+    }
+    
+    global $wpdb;
+    $user_id = $wpdb->get_var($wpdb->prepare(
+        "SELECT user_id FROM {$wpdb->usermeta} WHERE meta_key = 'cip_certificate_number' AND meta_value = %s",
+        $cert_number
+    ));
+    
+    if ($user_id) {
+        $grade = get_user_meta($user_id, 'cip_certificate_grade', true);
+        $table = $wpdb->prefix . 'company_registrations';
+        $registration = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM $table WHERE email = (SELECT user_email FROM {$wpdb->users} WHERE ID = %d)",
+            $user_id
+        ), ARRAY_A);
+        
+        echo '<html><head><title>Certificate Verification</title><style>
+            body { font-family: Arial; padding: 40px; text-align: center; }
+            .verified { color: #4CAF50; font-size: 24px; margin: 20px 0; }
+            .cert-info { background: #f5f5f5; padding: 20px; border-radius: 8px; display: inline-block; }
+        </style></head><body>';
+        echo '<h1>✓ Certificate Verified</h1>';
+        echo '<div class="verified">This is a valid CleanIndex ESG Certificate</div>';
+        echo '<div class="cert-info">';
+        echo '<strong>Certificate Number:</strong> ' . esc_html($cert_number) . '<br>';
+        echo '<strong>Company:</strong> ' . esc_html($registration['company_name']) . '<br>';
+        echo '<strong>Grade:</strong> ' . esc_html($grade) . '<br>';
+        echo '</div>';
+        echo '</body></html>';
+        exit;
+    } else {
+        wp_die('Certificate not found');
     }
 }
 
@@ -512,160 +667,6 @@ function cip_admin_system_page() {
     // Include the system info page template
     if (file_exists(CIP_PLUGIN_DIR . 'admin/system-info-page.php')) {
         include CIP_PLUGIN_DIR . 'admin/system-info-page.php';
-    }
-}
-
-/**
- * ========================================
- * ADMIN NOTICES
- * ========================================
- */
-add_action('admin_notices', 'cip_admin_notices');
-
-function cip_admin_notices() {
-    // Permalink refresh notice
-    if (get_transient('cip_flush_rewrite_rules_flag')) {
-        ?>
-        <div class="notice notice-warning is-dismissible">
-            <p>
-                <strong>CleanIndex Portal:</strong> 
-                To ensure all plugin pages work correctly, please 
-                <a href="<?php echo admin_url('options-permalink.php'); ?>">go to Settings > Permalinks</a> 
-                and click "Save Changes".
-            </p>
-        </div>
-        <?php
-    }
-    
-    // Check if permalink structure is set
-    $permalink_structure = get_option('permalink_structure');
-    if (empty($permalink_structure)) {
-        ?>
-        <div class="notice notice-error">
-            <p>
-                <strong>CleanIndex Portal:</strong> 
-                Pretty permalinks are required for this plugin to work. 
-                <a href="<?php echo admin_url('options-permalink.php'); ?>">Please configure your permalink settings</a>.
-            </p>
-        </div>
-        <?php
-    }
-}
-
-/**
- * ========================================
- * ACTIVATION REDIRECT
- * ========================================
- */
-add_action('admin_init', 'cip_activation_redirect');
-
-function cip_activation_redirect() {
-    if (get_transient('cip_activation_redirect')) {
-        delete_transient('cip_activation_redirect');
-        if (!isset($_GET['activate-multi'])) {
-            wp_safe_redirect(admin_url('admin.php?page=cleanindex-portal&activated=true'));
-            exit;
-        }
-    }
-}
-
-/**
- * ========================================
- * PDF DOWNLOAD HANDLERS
- * ========================================
- */
-function cip_download_assessment_pdf() {
-    if (!is_user_logged_in()) {
-        wp_die('Not authorized');
-    }
-    
-    $user = wp_get_current_user();
-    global $wpdb;
-    $table = $wpdb->prefix . 'company_registrations';
-    $registration = $wpdb->get_row($wpdb->prepare(
-        "SELECT * FROM $table WHERE email = %s",
-        $user->user_email
-    ), ARRAY_A);
-    
-    if (!$registration) {
-        wp_die('Registration not found');
-    }
-    
-    if (class_exists('CIP_PDF_Generator')) {
-        $pdf_gen = new CIP_PDF_Generator();
-        $result = $pdf_gen->generate_assessment_pdf($registration['id']);
-        
-        if ($result['success']) {
-            header('Content-Type: application/pdf');
-            header('Content-Disposition: attachment; filename="ESG_Assessment.pdf"');
-            readfile($result['path']);
-            exit;
-        }
-    }
-    
-    wp_die('Error generating PDF');
-}
-
-function cip_download_certificate() {
-    if (!is_user_logged_in()) {
-        wp_die('Not authorized');
-    }
-    
-    $cert_url = get_user_meta(get_current_user_id(), 'cip_certificate_url', true);
-    
-    if (!$cert_url) {
-        wp_die('Certificate not found');
-    }
-    
-    $cert_path = str_replace(CIP_UPLOAD_URL, CIP_UPLOAD_DIR, $cert_url);
-    
-    if (file_exists($cert_path)) {
-        header('Content-Type: application/pdf');
-        header('Content-Disposition: attachment; filename="ESG_Certificate.pdf"');
-        readfile($cert_path);
-        exit;
-    } else {
-        wp_die('Certificate file not found');
-    }
-}
-
-function cip_verify_certificate() {
-    $cert_number = get_query_var('cert_number');
-    
-    if (!$cert_number) {
-        wp_die('Invalid certificate number');
-    }
-    
-    global $wpdb;
-    $user_id = $wpdb->get_var($wpdb->prepare(
-        "SELECT user_id FROM {$wpdb->usermeta} WHERE meta_key = 'cip_certificate_number' AND meta_value = %s",
-        $cert_number
-    ));
-    
-    if ($user_id) {
-        $grade = get_user_meta($user_id, 'cip_certificate_grade', true);
-        $table = $wpdb->prefix . 'company_registrations';
-        $registration = $wpdb->get_row($wpdb->prepare(
-            "SELECT * FROM $table WHERE email = (SELECT user_email FROM {$wpdb->users} WHERE ID = %d)",
-            $user_id
-        ), ARRAY_A);
-        
-        echo '<html><head><title>Certificate Verification</title><style>
-            body { font-family: Arial; padding: 40px; text-align: center; }
-            .verified { color: #4CAF50; font-size: 24px; margin: 20px 0; }
-            .cert-info { background: #f5f5f5; padding: 20px; border-radius: 8px; display: inline-block; }
-        </style></head><body>';
-        echo '<h1>✓ Certificate Verified</h1>';
-        echo '<div class="verified">This is a valid CleanIndex ESG Certificate</div>';
-        echo '<div class="cert-info">';
-        echo '<strong>Certificate Number:</strong> ' . esc_html($cert_number) . '<br>';
-        echo '<strong>Company:</strong> ' . esc_html($registration['company_name']) . '<br>';
-        echo '<strong>Grade:</strong> ' . esc_html($grade) . '<br>';
-        echo '</div>';
-        echo '</body></html>';
-        exit;
-    } else {
-        wp_die('Certificate not found');
     }
 }
 
@@ -1206,14 +1207,14 @@ function cip_validate_uploaded_file($file) {
  * ========================================
  */
 
-// Schedule cron jobs on activation
+// Schedule cron jobs
 function cip_schedule_cron_jobs() {
     if (!wp_next_scheduled('cip_check_expired_subscriptions')) {
         wp_schedule_event(time(), 'daily', 'cip_check_expired_subscriptions');
     }
 }
 
-// Remove cron jobs on deactivation
+// Remove cron jobs
 function cip_unschedule_cron_jobs() {
     wp_clear_scheduled_hook('cip_check_expired_subscriptions');
 }
@@ -1286,6 +1287,60 @@ function cip_shortcode_register() {
 
 /**
  * ========================================
+ * ADMIN NOTICES
+ * ========================================
+ */
+add_action('admin_notices', 'cip_admin_notices');
+
+function cip_admin_notices() {
+    // Permalink refresh notice
+    if (get_transient('cip_flush_rewrite_rules_flag')) {
+        ?>
+        <div class="notice notice-warning is-dismissible">
+            <p>
+                <strong>CleanIndex Portal:</strong> 
+                To ensure all plugin pages work correctly, please 
+                <a href="<?php echo admin_url('options-permalink.php'); ?>">go to Settings > Permalinks</a> 
+                and click "Save Changes".
+            </p>
+        </div>
+        <?php
+    }
+    
+    // Check if permalink structure is set
+    $permalink_structure = get_option('permalink_structure');
+    if (empty($permalink_structure)) {
+        ?>
+        <div class="notice notice-error">
+            <p>
+                <strong>CleanIndex Portal:</strong> 
+                Pretty permalinks are required for this plugin to work. 
+                <a href="<?php echo admin_url('options-permalink.php'); ?>">Please configure your permalink settings</a>.
+            </p>
+        </div>
+        <?php
+    }
+}
+
+/**
+ * ========================================
+ * ACTIVATION REDIRECT
+ * ========================================
+ */
+add_action('admin_init', 'cip_activation_redirect');
+
+function cip_activation_redirect() {
+    if (get_transient('cip_activation_redirect')) {
+        delete_transient('cip_activation_redirect');
+        if (!isset($_GET['activate-multi'])) {
+            wp_safe_redirect(admin_url('admin.php?page=cleanindex-portal&activated=true'));
+            exit;
+        }
+    }
+}
+
+/**
+ * ========================================
  * CLEANUP ON UNINSTALL
  * ========================================
  */
@@ -1304,7 +1359,6 @@ function cip_plugin_uninstall() {
     // Optionally delete options
     // delete_option('cip_default_currency');
     // delete_option('cip_pricing_plans');
-    // etc...
     
     // Remove cron jobs
     wp_clear_scheduled_hook('cip_check_expired_subscriptions');
