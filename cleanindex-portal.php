@@ -416,16 +416,6 @@ function cip_enqueue_scripts() {
 
 /**
  * ========================================
- * HELPER FUNCTION
- * ========================================
- */
-function cip_is_plugin_page() {
-    $page = get_query_var('cip_page');
-    return !empty($page);
-}
-
-/**
- * ========================================
  * ADMIN MENU
  * ========================================
  */
